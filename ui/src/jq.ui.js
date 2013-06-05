@@ -1,7 +1,7 @@
  /**
  * jq.ui - A User Interface library for creating jqMobi applications
  *
- * @copyright 2011
+ * @copyright 2011 Intel
  * @author AppMobi
  */
 (function($) {
@@ -14,6 +14,17 @@
     var ui = function() {
         // Init the page
         var that = this;
+
+        /**
+         * Helper function to setup the transition objects
+         * Custom transitions can be added via $.ui.availableTransitions
+           ```
+           $.ui.availableTransitions['none']=function();
+           ```
+         */
+        
+        this.availableTransitions = {};
+        this.availableTransitions['default'] = this.availableTransitions['none'] = this.noTransition;
 
         //setup the menu and boot touchLayer
         jq(document).ready(function() {
@@ -51,25 +62,19 @@
             AppMobi = {}, AppMobi.webRoot = "";
 
         //click back event
-        window.addEventListener("popstate", function() {
+         window.addEventListener("popstate", function() {
+            
             var id = $.ui.getPanelId(document.location.hash);
             //make sure we allow hash changes outside jqUi
-            if (!$.ui.historyCache[id.replace("#", "")])
+            if(id==""&&$.ui.history.length===1) //Fix going back to first panel and an empty hash
+                id="#"+$.ui.firstDiv.id;
+            if(id=="")
+                return;
+            if(document.querySelectorAll(id+".panel").length===0)
                 return;
             if (id != "#" + $.ui.activeDiv.id)
                 that.goBack();
         }, false);
-
-        /**
-         * Helper function to setup the transition objects
-         * Custom transitions can be added via $.ui.availableTransitions
-           ```
-           $.ui.availableTransitions['none']=function();
-           ```
-         */
-        
-        this.availableTransitions = {};
-        this.availableTransitions['default'] = this.availableTransitions['none'] = this.noTransition;
     };
     
     
@@ -84,7 +89,6 @@
         backButton: "",
         remotePages: {},
         history: [],
-        historyCache: {},
         homeDiv: "",
         screenWidth: "",
         content: "",
@@ -102,7 +106,6 @@
         transitionType: "slide",
         scrollingDivs: [],
         firstDiv: "",
-        remoteJSPages: {},
         hasLaunched: false,
         launchCompleted: false,
         activeDiv: "",
@@ -291,15 +294,15 @@
             if (this.history.length > 0) {
                 var that = this;
                 var tmpEl = this.history.pop();
-                $.asap(
+                //$.asap(
                 
-                function() {
+                //function() {
                     that.loadContent(tmpEl.target + "", 0, 1, tmpEl.transition);
                     that.transitionType = tmpEl.transition;
                     //document.location.hash=tmpEl.target;
                     that.updateHash(tmpEl.target);
                 //for Android 4.0.x, we must touchLayer.hideAdressBar()
-                });
+            //    });
             }
         },
         /**
@@ -336,7 +339,6 @@
                     newUrl: startPath + '#' + newPage + hashExtras,
                     oldURL: startPath + previousPage
                 });
-                this.historyCache[newPage] = 1;
             } catch (e) {
             }
         },
@@ -430,7 +432,7 @@
          * @title $.ui.toggleNavMenu([force])
          */
         toggleNavMenu: function(force) {
-            if (!jq.ui.showNavMenu)
+            if (!this.showNavMenu)
                 return;
             if (jq("#navbar").css("display") != "none" && ((force !== undefined && force !== true) || force === undefined)) {
                 jq("#content").css("bottom", "0px");
@@ -479,29 +481,27 @@
             if (!(menu.hasClass("on") || menu.hasClass("to-on")) && ((force !== undefined && force !== false) || force === undefined)) {
                 
                 menu.show();
-                $.asap(function() {
-                    that.css3animate(els, {
-                        "removeClass": "to-off off on",
-                        "addClass": "to-on",
-                        complete: function(canceled) {
-                            if (!canceled) {
-                                that.css3animate(els, {
-                                    "removeClass": "to-off off to-on",
-                                    "addClass": "on",
-                                    time: 0,
-                                    complete: function() {
-                                        that.togglingSideMenu = false;
-                                        if (callback)
-                                            callback(false);
-                                    }
-                                });
-                            } else {
-                                that.togglingSideMenu = false;
-                                if (callback)
-                                    callback(true);
-                            }
+                that.css3animate(els, {
+                    "removeClass": "to-off off on",
+                    "addClass": "to-on",
+                    complete: function(canceled) {
+                        if (!canceled) {
+                            that.css3animate(els, {
+                                "removeClass": "to-off off to-on",
+                                "addClass": "on",
+                                time: 0,
+                                complete: function() {
+                                    that.togglingSideMenu = false;
+                                    if (callback)
+                                        callback(false);
+                                }
+                            });
+                        } else {
+                            that.togglingSideMenu = false;
+                            if (callback)
+                                callback(true);
                         }
-                    });
+                    }
                 });
             
             } else if (force === undefined || (force !== undefined && force === false)) {
@@ -587,10 +587,6 @@
             nb.html("");
             for (var i = 0; i < elems.length; i++) {
                 var node = elems[i].cloneNode(true);
-                if (elems[i].oldhash) {
-                    node.href = elems[i].oldhref;
-                    node.onclick = elems[i].oldonclick;
-                }
                 nb.append(node);
             }
             var tmpAnchors = jq("#navbar a");
@@ -650,10 +646,6 @@
                 nb.append(tmp);
                 for (var i = 0; i < elems.length; i++) {
                     var node = elems[i].cloneNode(true);
-                    if (elems[i].oldhash) {
-                        node.href = elems[i].oldhref;
-                        node.onclick = elems[i].oldonclick;
-                    }
                     nb.append(node);
                 }
             }
@@ -739,8 +731,9 @@
                     
                     button = null;
                     content = null;
-                    this.scrollingDivs['modal_container'].enable();
+                    this.scrollingDivs['modal_container'].enable(that.resetScrollers);
                     this.scrollToTop('modal');
+                     jq("#modalContainer").data("panel",id);
                 }
             } catch (e) {
                 console.log("Error with modal - " + e, this.modalWindow);
@@ -758,6 +751,14 @@
             jq("#jQui_modal").hide()
             
             this.scrollingDivs['modal_container'].disable();
+
+            var tmp=$($("#modalContainer").data("panel"));
+            var fnc = tmp.data("unload");
+            if (typeof fnc == "string" && window[fnc]) {
+                window[fnc](tmp.get(0));
+            }
+            tmp.trigger("unloadpanel");
+
         },
 
         /**
@@ -821,10 +822,9 @@
                 newDiv = myEl;
             }
             newDiv.className = "panel";
-            var that = this;
-            
+            newId=newDiv.id;
+            this.addDivAndScroll(newDiv, refresh, refreshFunc);
             myEl = null;
-            that.addDivAndScroll(newDiv, refresh, refreshFunc);
             newDiv = null;
             return newId;
         },
@@ -857,6 +857,7 @@
             if (tmp.getAttribute("scrolling") && tmp.getAttribute("scrolling") == "no") {
                 hasScroll = false;
                 jsScroll = false;
+                tmp.removeAttribute("js-scrolling");
             }
             
             if (!jsScroll) {
@@ -923,12 +924,12 @@
          */
         scrollToTop: function(id) {
             if (this.scrollingDivs[id]) {
-                this.scrollingDivs[id].scrollToTop();
+                this.scrollingDivs[id].scrollToTop("300ms");
             }
         },
         scrollToBottom: function(id) {
             if (this.scrollingDivs[id]) {
-                this.scrollingDivs[id].scrollToBottom();
+                this.scrollingDivs[id].scrollToBottom("300ms");
             }
         },
 
@@ -963,6 +964,12 @@
                     that.updateNavbarElements(that.defaultFooter);
                 that.customFooter = false;
             }
+            if (hasHeader && hasHeader.toLowerCase() == "none") {
+                that.toggleHeaderMenu(false);
+            } else {
+                that.toggleHeaderMenu(true);
+            }
+
             if (hasHeader && that.customHeader != hasHeader) {
                 that.customHeader = hasHeader;
                 that.updateHeaderElements(jq("#" + hasHeader).children());
@@ -1034,21 +1041,7 @@
         parseScriptTags: function(div) {
             if (!div)
                 return;
-            var scripts = div.getElementsByTagName("script");
-            div = null;
-            var that = this;
-            for (var i = 0; i < scripts.length; i++) {
-                if (scripts[i].src.length > 0 && !that.remoteJSPages[scripts[i].src]) {
-                    var doc = document.createElement("script");
-                    doc.type = scripts[i].type;
-                    doc.src = scripts[i].src;
-                    document.getElementsByTagName('head')[0].appendChild(doc);
-                    that.remoteJSPages[scripts[i].src] = 1;
-                    doc = null;
-                } else {
-                    window.eval(scripts[i].innerHTML);
-                }
-            }
+            $.parseJS(div);
         },
         /**
          * This is called to initiate a transition or load content via ajax.
@@ -1084,8 +1077,13 @@
                     loadAjax = false;
                 } 
                 else if (crcCheck.length > 0) {
-                    if (crcCheck.length > 0)
-                        target = "#" + crcCheck.get(0).id
+                    loadAjax = false;
+                    if (anchor.getAttribute("data-refresh-ajax") === 'true' || (anchor.refresh && anchor.refresh === true || this.isAjaxApp)) {
+                        loadAjax = true;
+                    }
+                    else {
+                        target = "#" + crcCheck.get(0).id;
+                    }
                 } else if (jq("#" + urlHash).length > 0) {
 
                     //ajax div already exists.  Let's see if we should be refreshing it.
@@ -1137,15 +1135,21 @@
                     this.toggleSideMenu(false);
                 return;
             }
+            this.transitionType = transition;
+            var oldDiv = this.activeDiv;
+            var currWhat = what;
             
             if (what.getAttribute("data-modal") == "true" || what.getAttribute("modal") == "true") {
+                var fnc = what.getAttribute("data-load");
+                if (typeof fnc == "string" && window[fnc]) {
+                    window[fnc](what);
+                }
+                $(what).trigger("loadpanel");
                 return this.showModal(what.id);
             }
                         
             
-            this.transitionType = transition;
-            var oldDiv = this.activeDiv;
-            var currWhat = what;
+          
             
             if (oldDiv == currWhat) //prevent it from going to itself
                 return;
@@ -1160,9 +1164,7 @@
             
             previousTarget = '#' + what.id + hashLink;
             
-            if (this.resetScrollers && this.scrollingDivs[what.id]) {
-                this.scrollingDivs[what.id].scrollToTop();
-            }
+            
             this.doingTransition = true;
 
             oldDiv.style.display="block";
@@ -1229,7 +1231,7 @@
                 this.setBackButtonVisibility(true);
             this.activeDiv = what;
             if (this.scrollingDivs[this.activeDiv.id]) {
-                this.scrollingDivs[this.activeDiv.id].enable();
+                this.scrollingDivs[this.activeDiv.id].enable(this.resetScrollers);
             }
         },
         /**
@@ -1250,8 +1252,6 @@
                 return;
             var urlHash = "url" + crc32(target); //Ajax urls
             var that = this;
-            if (target.indexOf("http") == -1)
-                target = AppMobi.webRoot + target;
             if (target.indexOf("http") == -1)
                 target = AppMobi.webRoot + target;
             var xmlhttp = new XMLHttpRequest();
@@ -1439,7 +1439,8 @@
             this.header.innerHTML = '<a id="backButton"  href="javascript:;"></a> <h1 id="pageTitle"></h1>' + header.innerHTML;
             this.backButton = $("#header #backButton").get(0);
             this.backButton.className = "button";
-            jq(document).on("click", "#header #backButton", function() {
+            jq(document).on("click", "#header #backButton", function(e) {
+                e.preventDefault();
                 that.goBack();
             });
             this.backButton.style.visibility = "hidden";
@@ -1476,19 +1477,23 @@
                 var el = contentDivs[i];
                 var tmp = el;
                 var id;
+                var prevSibling=el.previousSibling;
                 if (el.parentNode && el.parentNode.id != "content") {
+
                     el.parentNode.removeChild(el);
-                    var id = el.id;
+                    id = el.id;
                     if (tmp.getAttribute("selected"))
                         this.firstDiv = jq("#" + id).get(0);
                     this.addDivAndScroll(tmp);
+                    jq("#"+id).insertAfter(prevSibling);
                 } else if (!el.parsedContent) {
                     el.parsedContent = 1;
                     el.parentNode.removeChild(el);
-                    var id = el.id;
+                    id = el.id;
                     if (tmp.getAttribute("selected"))
                         this.firstDiv = jq("#" + id).get(0);
                     this.addDivAndScroll(tmp);
+                    jq("#"+id).insertAfter(prevSibling);
                 }
                 if (el.getAttribute("data-defer")) {
                     defer[id] = el.getAttribute("data-defer");
@@ -1563,9 +1568,7 @@
                     //
                     jq("#navbar").on("click", "a", function(e) {
                         jq("#navbar a").not(this).removeClass("selected");
-                        $.asap(function() {
                             $(e.target).addClass("selected");
-                        });
                     });
 
 
@@ -1576,10 +1579,15 @@
                         that.loadContent(defaultHash, true, false, 'none'); //load the active page as a newTab with no transition
                     } else {
                         previousTarget = "#" + that.firstDiv.id;
-                        that.loadContentData(that.firstDiv); //load the info off the first panel
                         that.parsePanelFunctions(that.firstDiv);
+                        that.loadContentData(that.firstDiv); //load the info off the first panel
+                        
+                        
                         that.firstDiv.style.display = "block";
                         $("#header #backButton").css("visibility", "hidden");
+                        if (that.firstDiv.getAttribute("data-modal") == "true" || that.firstDiv.getAttribute("modal") == "true") {            
+                            that.showModal(that.firstDiv.id);
+                        }
                     }
                     
                     that.launchCompleted = true;
@@ -1591,19 +1599,17 @@
                     //trigger ui ready
                     jq(document).trigger("jq.ui.ready");
                     //remove splashscreen
-                    
-                    $.asap(function() {
-                        // Run after the first div animation has been triggered - avoids flashing
-                        jq("#splashscreen").remove();
-                    });
+
+                    // Run after the first div animation has been triggered - avoids flashing
+                    jq("#splashscreen").remove();
                 };
                 if (loadingDefer) {
                     $(document).one("defer:loaded", loadFirstDiv);
                 } else
-                    $.asap(loadFirstDiv);
+                    loadFirstDiv();
             }
             var that = this;
-            $.bind($.ui, "content-loaded", function() {
+            $.bind(that, "content-loaded", function() {
                 if (that.loadContentQueue.length > 0) {
                     var tmp = that.loadContentQueue.splice(0, 1)[0];
                     that.loadContent(tmp[0], tmp[1], tmp[2], tmp[3], tmp[4]);
@@ -1612,6 +1618,17 @@
             if (window.navigator.standalone) {
                 this.blockPageScroll();
             }
+            this.topClickScroll();
+           
+        },
+        /**
+         * This simulates the click and scroll to top of browsers
+         */
+        topClickScroll:function(){
+             document.getElementById("header").addEventListener("click",function(e){
+                if(e.clientY<=15&&e.target.nodeName.toLowerCase()=="h1") //hack - the title spans the whole width of the header
+                    $.ui.scrollingDivs[$.ui.activeDiv.id].scrollToTop("100");
+            });
         
         },
         /**
@@ -1696,8 +1713,7 @@
                 return;
             }
             
-            
-            
+
             if (theTarget.href.indexOf("tel:") === 0)
                 return false;
 
@@ -1759,15 +1775,32 @@
 
 
 //The following functions are utilitiy functions for jqUi within appMobi.
-//TODO: consider taking all appMobi constraints from jQUI into this code
-(function() {
-    document.addEventListener("appMobi.device.ready", function() { //in AppMobi, we need to undo the height stuff since it causes issues.
+
+(function($) {
+    $(document).one("appMobi.device.ready", function() { //in AppMobi, we need to undo the height stuff since it causes issues.
         setTimeout(function() {
             document.getElementById('jQUi').style.height = "100%";
             document.body.style.height = "100%";
             document.documentElement.style.minHeight = window.innerHeight;
         }, 300);
-        this.removeEventListener("appMobi.device.ready", arguments.callee);
+        $.ui.ready(function(){
+            $.ui.blockPageScroll();
+        })
     });
-
-})();
+    //Right now there is a bug where iOS will not scroll a div, even though it's enabled.  This turns scrolling back on with orientation changes
+    if($.feat.nativeTouchScroll){
+        document.addEventListener("orientationchange",function(e){
+            if($.ui.scrollingDivs[$.ui.activeDiv.id])
+            {
+                var tmpscroller=$.ui.scrollingDivs[$.ui.activeDiv.id];
+                if(tmpscroller.el.scrollTop==0)
+                {
+                    tmpscroller.disable();
+                    setTimeout(function(){
+                        tmpscroller.enable();
+                    },300);
+                }
+            }
+        });
+    }
+})(jq);

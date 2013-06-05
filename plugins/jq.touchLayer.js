@@ -1,8 +1,8 @@
 //TouchLayer contributed by Carlos Ouro @ Badoo
-//un-authoritive layer between touches and actions on the DOM 
+//un-authoritive layer between touches and actions on the DOM
 //(un-authoritive: listeners do not require useCapture)
-//handles overlooking JS and native scrolling, panning, 
-//no delay on click, edit mode focus, preventing defaults, resizing content, 
+//handles overlooking JS and native scrolling, panning,
+//no delay on click, edit mode focus, preventing defaults, resizing content,
 //enter/exit edit mode (keyboard on screen), prevent clicks on momentum, etc
 //It can be used independently in other apps but it is required by jqUi
 //Object Events
@@ -18,7 +18,7 @@
 //Other
 //orientationchange-reshape - resize event due to an orientationchange action
 //reshape - window.resize/window.scroll event (ignores onfocus "shaking") - general reshape notice
-(function() {
+(function($) {
 
 	//singleton
 	$.touchLayer = function(el) {
@@ -28,7 +28,7 @@
 	};
 	//configuration stuff
 	var inputElements = ['input', 'select', 'textarea'];
-	var autoBlurInputTypes = ['button', 'radio', 'checkbox', 'range'];
+	var autoBlurInputTypes = ['button', 'radio', 'checkbox', 'range','date'];
 	var requiresJSFocus = $.os.ios; //devices which require .focus() on dynamic click events
 	var verySensitiveTouch = $.os.blackberry; //devices which have a very sensitive touch and touchmove is easily fired even on simple taps
 	var inputElementRequiresNativeTap = $.os.blackberry || ($.os.android && !$.os.chrome); //devices which require the touchstart event to bleed through in order to actually fire the click on select elements
@@ -38,6 +38,12 @@
 	var requirePanning = $.os.ios; //devices which require panning feature
 	var addressBarError = 0.97; //max 3% error in position
 	var maxHideTries = 2; //HideAdressBar does not retry more than 2 times (3 overall)
+	var skipTouchEnd=false; //Fix iOS bug with alerts/confirms
+	function getTime(){
+		var d = new Date();
+		var n = d.getTime();
+		return n;
+	}
 	var touchLayer = function(el) {
 			this.clearTouchVars();
 			el.addEventListener('touchstart', this, false);
@@ -74,9 +80,13 @@
 			}, true);
 			//js scrollers self binding
 			$.bind(this, 'scrollstart', function(el) {
+				that.isScrolling=true;
+				that.scrollingEl_=el;
 				that.fireEvent('UIEvents', 'scrollstart', el, false, false);
 			});
 			$.bind(this, 'scrollend', function(el) {
+				that.isScrolling=false;
+
 				that.fireEvent('UIEvents', 'scrollend', el, false, false);
 			});
 			//fix layer positioning
@@ -186,7 +196,9 @@
 			} else if(jq.os.android) {
 				//on some phones its immediate
 				window.scrollTo(1, 1);
-				this.layer.style.height = this.isFocused_ ? (window.innerHeight) + "px" : (window.outerHeight / window.devicePixelRatio) + 'px';
+				//this.layer.style.height = this.isFocused_ ? (window.innerHeight) + "px" : (window.outerHeight / window.devicePixelRatio) + 'px';
+     			this.layer.style.height = this.isFocused_||window.innerHeight>window.outerHeight ? (window.innerHeight) + "px" : ((window.outerHeight) / window.devicePixelRatio)+ 'px';
+
 				//sometimes android devices are stubborn
 				that = this;
 				//re-test in a bit (some androids (SII, Nexus S, etc) fail to resize on first try)
@@ -236,7 +248,6 @@
 
 			//this.log("click on "+tag);
 			if(inputElements.indexOf(tag) !== -1 && (!this.isFocused_ || !e.target==(this.focusedElement))) {
-
 				var type = e.target && e.target.type != undefined ? e.target.type.toLowerCase() : '';
 				var autoBlur = autoBlurInputTypes.indexOf(type) !== -1;
 
@@ -308,7 +319,7 @@
 		},
 		onBlur: function(e) {
 			if(jq.os.android && e.target == window) return; //ignore window blurs
-	
+
 			this.isFocused_ = false;
 			//just in case...
 			if(this.focusedElement) this.focusedElement.removeEventListener('blur', this, false);
@@ -369,7 +380,7 @@
 					else this.blockPossibleClick_ = true;
 					//check if event was already set
 				} else if(this.scrollTimeoutEl_) {
-					//trigger 
+					//trigger
 					this.scrollEnded(true);
 					this.blockPossibleClick_ = true;
 				}
@@ -380,7 +391,7 @@
 			// We allow forcing native tap in android devices (required in special cases)
 			var forceNativeTap = (jq.os.android && e && e.target && e.target.getAttribute && e.target.getAttribute("data-touchlayer") == "ignore");
 
-			//if on edit mode, allow all native touches 
+			//if on edit mode, allow all native touches
 			//(BB10 must still be prevented, always clicks even after move)
 			if(forceNativeTap || (this.isFocused_ && !$.os.blackberry10)) {
 				this.requiresNativeTap = true;
@@ -395,17 +406,14 @@
 					this.requiresNativeTap = true;
 				}
 			}
+			else if(e.target&&e.target.tagName!==undefined&&e.target.tagName.toLowerCase()=="input"&&e.target.type=="range"){
+                this.requiresNativeTap=true;
+            }
 
-			////this.log("Touchstart: "+
-			//	(this.isFocused_?"focused ":"")+
-			//	(this.isPanning_?"panning ":"")+
-			//	(this.requiresNativeTap?"nativeTap ":"")+
-			//	(this.isScrolling?"scrolling ":"")+
-			//	(this.allowDocumentScroll_?"allowDocumentScroll_ ":"")
-			//);
 			//prevent default if possible
-			if(!this.isScrolling && !this.isPanning_ && !this.requiresNativeTap) {
-				e.preventDefault();
+			if(!this.isPanning_ && !this.requiresNativeTap) {
+                if((this.isScrolling && !$.feat.nativeTouchScroll)||(!this.isScrolling))
+					e.preventDefault();
 				//demand vertical scroll (don't let it pan the page)
 			} else if(this.isScrollingVertical_) {
 				this.demandVerticalScroll();
@@ -507,25 +515,37 @@
 			}
 			//native scroll (for scrollend)
 			if(this.isScrolling) {
+
 				if(!wasMoving) {
 					//this.log("scrollstart");
 					this.fireEvent('UIEvents', 'scrollstart', this.scrollingEl_, false, false);
 				}
-				if(this.isScrollingVertical_) {
+				//if(this.isScrollingVertical_) {
 					this.speedY = (this.lastY - e.touches[0].pageY) / (e.timeStamp - this.lastTimestamp);
 					this.lastY = e.touches[0].pageY;
+					this.lastX = e.touches[0].pageX;
 					this.lastTimestamp = e.timeStamp;
-				}
+				//}
 			}
 			//non-native scroll devices
-			if(!this.isScrolling && (!$.os.blackberry10 || !this.requiresNativeTap)) {
+
+			if((!$.os.blackberry10 && !this.requiresNativeTap)) {
 				//legacy stuff for old browsers
-				e.preventDefault();
+				if(!this.isScrolling ||!$.feat.nativeTouchScroll)
+					e.preventDefault();
 				return;
 			}
+			//e.stopPropagation();
 		},
 
 		onTouchEnd: function(e) {
+			if($.os.ios){
+				if(skipTouchEnd==e.changedTouches[0].identifier){
+					e.preventDefault();
+					return false;
+				}
+				skipTouchEnd=e.changedTouches[0].identifier;
+			}
 			//double check moved for sensitive devices
 			var itMoved = this.moved;
 			if(verySensitiveTouch) {
@@ -551,8 +571,7 @@
 				if(!this.blockClicks && !this.blockPossibleClick_) {
 					var theTarget = e.target;
 					if(theTarget.nodeType == 3) theTarget = theTarget.parentNode;
-
-					this.fireEvent('MouseEvents', 'click', theTarget, true, e.mouseToTouch);
+					this.fireEvent('Event', 'click', theTarget, true, e.mouseToTouch,e.changedTouches[0]);
 					this.lastTouchStartX=this.dX;
 					this.lastTouchStartY=this.dY;
 				}
@@ -590,16 +609,21 @@
 			this.blockPossibleClick_ = false;
 		},
 
-		fireEvent: function(eventType, eventName, target, bubbles, mouseToTouch) {
+		fireEvent: function(eventType, eventName, target, bubbles, mouseToTouch,data) {
 			//this.log("Firing event "+eventName);
 			//create the event and set the options
 			var theEvent = document.createEvent(eventType);
 			theEvent.initEvent(eventName, bubbles, true);
 			theEvent.target = target;
+            if(data){
+                $.each(data,function(key,val){
+                    theEvent[key]=val;
+                });
+            }
 			//jq.DesktopBrowsers flag
 			if(mouseToTouch) theEvent.mouseToTouch = true;
 			target.dispatchEvent(theEvent);
 		}
 	};
 
-})();
+})(jq);

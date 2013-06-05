@@ -6,9 +6,9 @@ It is comprised of three parts.
 
 1) jqMobi  - query selector library
 
-2) jqUi - UI/UX library for mobile applications in a webkit browser.  Please see the Kitchen Sink folder for a demo
+2) jqUi - UI/UX library for mobile applications in a webkit browser or W8/WP8.  Please see the Kitchen Sink folder for a demo
 
-3) jqPlugins - plugins for mobile applications in a webkit browser.
+3) jqPlugins - plugins for mobile applications in a webkit browser or W8/WP8.
 
 
 # About jqMobi
@@ -78,7 +78,7 @@ You can pass in an HTML string and it will create the object for you.
 var myDiv=$("<div id='foo'>") //Creates a div object and returns it
 ```
 
-# jqMobi API functions - Please see http://api.jqmobi.com for all functions
+# jqMobi API functions - Please see http://app-framework-software.intel.com/api for all functions
 
 
 # jqMobi Ajax calls
@@ -147,7 +147,7 @@ You can contribute to the core code by forking it and make a pull request.  Plea
 
 # Bugs
 
-Please go to http://www.jqmobi.com and report any bugs with the following
+Please use github issues and file any bugs with the following
 
 1. Any error messages from the console
 
@@ -164,4 +164,8 @@ Please go to http://www.jqmobi.com and report any bugs with the following
 
 # License
 
-jqMobi is is licensed under the terms of the MIT License, see the included license.txt file.
+App Framework is is licensed under the terms of the MIT License, see the included license.txt file.
+
+jqMobi uses code from the following software:
+1) Zepto.js - Thomas Fuchs (MIT X11 License)
+2) qUnit - jQuery Foundation (MIT X11 License)

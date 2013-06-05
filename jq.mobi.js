@@ -6,6 +6,7 @@
 
 * MIT License
 * @author AppMobi
+* @copyright Intel
 * @api private
 */
 if (!window.jq || typeof (jq) !== "function") {
@@ -19,7 +20,7 @@ if (!window.jq || typeof (jq) !== "function") {
         var undefined, document = window.document, 
         emptyArray = [], 
         slice = emptyArray.slice, 
-        classCache = [], 
+        classCache = {}, 
         eventHandlers = [], 
         _eventID = 1, 
         jsonPHandlers = [], 
@@ -174,7 +175,8 @@ if (!window.jq || typeof (jq) !== "function") {
             
 
 			selector=selector.trim();
-            if (selector[0] === "#" && selector.indexOf(" ") === -1 && selector.indexOf(">") === -1) {
+            
+            if (selector[0] === "#" && selector.indexOf(".")==-1 && selector.indexOf(" ")===-1 && selector.indexOf(">")===-1){
                 if (what == document)
                     _shimNodes(what.getElementById(selector.replace("#", "")),this);
                 else
@@ -325,7 +327,7 @@ if (!window.jq || typeof (jq) !== "function") {
         * @title $.isFunction(param)
         */
         $.isFunction = function(obj) {
-            return typeof obj === "function";
+            return typeof obj === "function" && !(obj instanceof RegExp);
         };
         /**
         * Checks to see if the parameter is a object
@@ -379,9 +381,13 @@ if (!window.jq || typeof (jq) !== "function") {
             * @title $().map(function)
             */
             map: function(fn) {
-                return $.map(this, function(el, i) {
-                    return fn.call(el, i, el);
-                });
+                var value, values = [], i;
+                for (i = 0; i < this.length; i++) {
+                    value = fn(i,this[i]);
+                    if (value !== undefined)
+                        values.push(value);
+                }
+                return $([values]);
             },
             /**
             * Iterates through all elements and applys a callback function
@@ -432,7 +438,7 @@ if (!window.jq || typeof (jq) !== "function") {
             */
             find: function(sel) {
                 if (this.length === 0)
-                    return undefined;
+                    return this;
                 var elems = [];
                 var tmpElems;
                 for (var i = 0; i < this.length; i++) {
@@ -460,7 +466,7 @@ if (!window.jq || typeof (jq) !== "function") {
             */
             html: function(html,cleanup) {
                 if (this.length === 0)
-                    return undefined;
+                    return this;
                 if (html === undefined)
                     return this[0].innerHTML;
 
@@ -487,7 +493,7 @@ if (!window.jq || typeof (jq) !== "function") {
             */
             text: function(text) {
                 if (this.length === 0)
-                    return undefined;
+                    return this;
                 if (text === undefined)
                     return this[0].textContent;
                 for (var i = 0; i < this.length; i++) {
@@ -511,7 +517,7 @@ if (!window.jq || typeof (jq) !== "function") {
             css: function(attribute, value, obj) {
                 var toAct = obj != undefined ? obj : this[0];
                 if (this.length === 0)
-                    return undefined;
+                    return this;
                 if (value == undefined && typeof (attribute) === "string") {
                     var styles = window.getComputedStyle(toAct);
                     return  toAct.style[attribute] ? toAct.style[attribute]: window.getComputedStyle(toAct)[attribute] ;
@@ -555,7 +561,7 @@ if (!window.jq || typeof (jq) !== "function") {
             empty: function() {
                 for (var i = 0; i < this.length; i++) {
                     $.cleanUpContent(this[i], false, true);
-                    this[i].innerHTML = '';
+                    this[i].textContent = '';
                 }
                 return this;
             },
@@ -793,10 +799,12 @@ if (!window.jq || typeof (jq) !== "function") {
             /**
             * Removes elements based off a selector
                 ```
+                $().remove();  //Remove all
                 $().remove(".foo");//Remove off a string selector
                 var element=$("#foo").get();
                 $().remove(element); //Remove by an element
                 $().remove($(".foo"));  //Remove by a collection
+
                 ```
 
             * @param {String|Object|Array} selector to filter against
@@ -971,6 +979,7 @@ if (!window.jq || typeof (jq) !== "function") {
             appendTo:function(selector,insert){
                 var tmp=$(selector);
                 tmp.append(this);
+                return this;
             },
              /**
             * Prepends the current collection to the selector
@@ -984,6 +993,7 @@ if (!window.jq || typeof (jq) !== "function") {
             prependTo:function(selector){
                 var tmp=$(selector);
                 tmp.append(this,true);
+                return this;
             },
             /**
             * Prepends to the elements
@@ -1013,7 +1023,7 @@ if (!window.jq || typeof (jq) !== "function") {
                 if (this.length == 0)
                     return this;
                 target = $(target).get(0);
-                if (!target || target.length == 0)
+                if (!target)
                     return this;
                 for (var i = 0; i < this.length; i++) 
                 {
@@ -1060,7 +1070,7 @@ if (!window.jq || typeof (jq) !== "function") {
             */
             offset: function() {
                 if (this.length === 0)
-                    return undefined;
+                    return this;
                 if(this[0]==window)
                     return {
                         left:0,
@@ -1086,22 +1096,50 @@ if (!window.jq || typeof (jq) !== "function") {
                ```
                $().height();
                ```
-             * @return {string} height with  "px"
+             * @return {string} height
              * @title $().height()
              */
-            height:function(){
-                return this.offset().height;
+            height:function(val){
+                if (this.length === 0)
+                    return this;
+                if(val!=undefined)
+                    return this.css("height",val);
+                if(this[0]==this[0].window)
+                    return window.innerHeight;
+                if(this[0].nodeType==this[0].DOCUMENT_NODE)
+                    return this[0].documentElement['offsetheight'];
+                else{
+                    var tmpVal=this.css("height").replace("px","");
+                    if(tmpVal)
+                        return tmpVal
+                    else
+                        return this.offset().height;
+                }
             },
             /**
              * returns the width of the element, including padding on IE
                ```
                $().width();
                ```
-             * @return {string} width with  "px"
+             * @return {string} width
              * @title $().width()
              */
-            width:function(){
-                return this.offset().width;
+            width:function(val){
+                if (this.length === 0)
+                    return this;
+                 if(val!=undefined)
+                    return this.css("width",val);
+                if(this[0]==this[0].window)
+                    return window.innerWidth;
+                if(this[0].nodeType==this[0].DOCUMENT_NODE)
+                    return this[0].documentElement['offsetwidth'];
+                else{
+                    var tmpVal=this.css("width").replace("px","");
+					if(tmpVal)
+                        return tmpVal
+                    else
+					   return this.offset().width;
+                }
             },
             /**
             * Returns the parent nodes of the elements based off the selector
@@ -1115,15 +1153,36 @@ if (!window.jq || typeof (jq) !== "function") {
             * @return {Object} jqMobi object with unique parents
             * @title $().parent(selector)
             */
-            parent: function(selector) {
+            parent: function(selector,recursive) {
                 if (this.length == 0)
-                    return undefined;
+                    return this;
                 var elems = [];
                 for (var i = 0; i < this.length; i++) {
-                    if (this[i].parentNode)
-                        elems.push(this[i].parentNode);
+                    var tmp=this[i];
+                    while(tmp.parentNode&&tmp.parentNode!=document){
+                        elems.push(tmp.parentNode);
+                        if(tmp.parentNode)
+                            tmp=tmp.parentNode;
+                        if(!recursive)
+                            break;
+                    }
                 }
                 return this.setupOld($(unique(elems)).filter(selector));
+            },
+             /**
+            * Returns the parents of the elements based off the selector (traversing up until html document)
+                ```
+                $("#foo").parents('.bar');
+                $("#foo").parents($('.bar'));
+                $("#foo").parents($('.bar').get());
+                ```
+
+            * @param {String|Array|Object} [selector]
+            * @return {Object} jqMobi object with unique parents
+            * @title $().parents(selector)
+            */
+            parents: function(selector) {
+                return this.parent(selector,true);
             },
             /**
             * Returns the child nodes of the elements based off the selector
@@ -1140,7 +1199,7 @@ if (!window.jq || typeof (jq) !== "function") {
             children: function(selector) {
                 
                 if (this.length == 0)
-                    return undefined;
+                    return this;
                 var elems = [];
                 for (var i = 0; i < this.length; i++) {
                     elems = elems.concat(siblings(this[i].firstChild));
@@ -1162,7 +1221,7 @@ if (!window.jq || typeof (jq) !== "function") {
             */
             siblings: function(selector) {
                 if (this.length == 0)
-                    return undefined;
+                    return this;
                 var elems = [];
                 for (var i = 0; i < this.length; i++) {
                     if (this[i].parentNode)
@@ -1185,7 +1244,7 @@ if (!window.jq || typeof (jq) !== "function") {
             */
             closest: function(selector, context) {
                 if (this.length == 0)
-                    return undefined;
+                    return this;
                 var elems = [], 
                 cur = this[0];
                 
@@ -1212,7 +1271,7 @@ if (!window.jq || typeof (jq) !== "function") {
             */
             filter: function(selector) {
                 if (this.length == 0)
-                    return undefined;
+                    return this;
                 
                 if (selector == undefined)
                     return this;
@@ -1238,7 +1297,7 @@ if (!window.jq || typeof (jq) !== "function") {
             */
             not: function(selector) {
                 if (this.length == 0)
-                    return undefined;
+                    return this;
                 var elems = [];
                 for (var i = 0; i < this.length; i++) {
                     var val = this[i];
@@ -1291,7 +1350,7 @@ if (!window.jq || typeof (jq) !== "function") {
             clone: function(deep) {
                 deep = deep === false ? false : true;
                 if (this.length == 0)
-                    return undefined;
+                    return this;
                 var elems = [];
                 for (var i = 0; i < this.length; i++) {
                     elems.push(this[i].cloneNode(deep));
@@ -1314,26 +1373,37 @@ if (!window.jq || typeof (jq) !== "function") {
             /**
              * Serailizes a form into a query string
                ```
-               $().serialize(grouping);
+               $().serialize();
                ```
-             * @param {String} [grouping] - optional grouping to the fields -e.g users[name]
              * @return {String}
-             * @title $().serialize(grouping)
+             * @title $().serialize()
              */
-            serialize: function(grouping) {
+            serialize: function() {
                 if (this.length == 0)
                     return "";
-                var params = {};
+                var params = [];
                 for (var i = 0; i < this.length; i++) 
                 {
                     this.slice.call(this[i].elements).forEach(function(elem) {
                         var type = elem.getAttribute("type");
                         if (elem.nodeName.toLowerCase() != "fieldset" && !elem.disabled && type != "submit" 
                         && type != "reset" && type != "button" && ((type != "radio" && type != "checkbox") || elem.checked))
-                            params[elem.getAttribute("name")] = elem.value;
+                        {
+
+                            if(elem.getAttribute("name")){
+                                if(elem.type=="select-multiple"){
+                                    for(var j=0;j<elem.options.length;j++){
+                                        if(elem.options[j].selected)
+                                            params.push(elem.getAttribute("name")+"="+encodeURIComponent(elem.options[j].value))
+                                    }
+                                }
+                                else
+                                    params.push(elem.getAttribute("name")+"="+encodeURIComponent(elem.value))
+                            }
+                        }
                     });
                 }
-                return $.param(params,grouping);
+                return params.join("&");
             },
 
             /* added in 1.2 */
@@ -1381,7 +1451,7 @@ if (!window.jq || typeof (jq) !== "function") {
         
         function empty() {
         }
-        var ajaxSettings = {
+        $.ajaxSettings = {
             type: 'GET',
             beforeSend: empty,
             success: empty,
@@ -1466,9 +1536,9 @@ if (!window.jq || typeof (jq) !== "function") {
             try {
 				
                 var settings = opts || {};
-                for (var key in ajaxSettings) {
-                    if (!settings[key])
-                        settings[key] = ajaxSettings[key];
+                for (var key in $.ajaxSettings) {
+                    if (typeof(settings[key]) == 'undefined')
+                        settings[key] = $.ajaxSettings[key];
                 }
                 
                 if (!settings.url)
@@ -1548,7 +1618,12 @@ if (!window.jq || typeof (jq) !== "function") {
                                 }
                             } else if (mime === 'application/xml, text/xml') {
                                 result = xhr.responseXML;
-                            } else
+                            } 
+                            else if(mime=="text/html"){
+                                result=xhr.responseText;
+                                $.parseJS(result);
+                            }
+                            else
                                 result = xhr.responseText;
                             //If we're looking at a local file, we assume that no response sent back means there was an error
                             if(xhr.status===0&&result.length===0)
@@ -1585,7 +1660,9 @@ if (!window.jq || typeof (jq) !== "function") {
                     }, settings.timeout);
                 xhr.send(settings.data);
             } catch (e) {
+            	// General errors (e.g. access denied) should also be sent to the error callback
                 console.log(e);
+            	settings.error.call(context, xhr, 'error', e);
             }
             return xhr;
         };
@@ -1727,6 +1804,11 @@ if (!window.jq || typeof (jq) !== "function") {
          * .os.blackberry
          * .os.opera
          * .os.fennec
+         * .os.ie
+         * .os.ieTouch
+         * .os.supportsTouch
+         * .os.playbook
+         * .feat.nativetouchScroll
          * @api private
          */
         function detectUA($, userAgent) {
@@ -1745,12 +1827,13 @@ if (!window.jq || typeof (jq) !== "function") {
             $.os.chrome = userAgent.match(/Chrome/) ? true : false;
 			$.os.opera = userAgent.match(/Opera/) ? true : false;
             $.os.fennec = userAgent.match(/fennec/i) ? true :userAgent.match(/Firefox/)?true: false;
-            $.os.ie = userAgent.match(/MSIE 10.0/i)?true:false
-			$.os.supportsTouch = ((window.DocumentTouch && document instanceof window.DocumentTouch) || 'ontouchstart' in window);
-			//features
-			$.feat = {};
+            $.os.ie = userAgent.match(/MSIE 10.0/i)?true:false;
+            $.os.ieTouch=$.os.ie&&userAgent.toLowerCase().match(/touch/i)?true:false;
+            $.os.supportsTouch = ((window.DocumentTouch && document instanceof window.DocumentTouch) || 'ontouchstart' in window);
+            //features
+            $.feat = {};
             var head=document.documentElement.getElementsByTagName("head")[0];
-			$.feat.nativeTouchScroll =  typeof(head.style["-webkit-overflow-scrolling"])!=="undefined"||$.os.ie;
+            $.feat.nativeTouchScroll =  typeof(head.style["-webkit-overflow-scrolling"])!=="undefined"&&$.os.ios;
             $.feat.cssPrefix=$.os.webkit?"Webkit":$.os.fennec?"Moz":$.os.ie?"ms":$.os.opera?"O":"";
             $.feat.cssTransformStart=!$.os.opera?"3d(":"(";
             $.feat.cssTransformEnd=!$.os.opera?",0)":")";
@@ -1761,7 +1844,6 @@ if (!window.jq || typeof (jq) !== "function") {
         detectUA($, navigator.userAgent);
         $.__detectUA = detectUA; //needed for unit tests
         if (typeof String.prototype.trim !== 'function') {
-
             /**
              * Helper function for iOS 3.1.3
              */
@@ -1784,6 +1866,14 @@ if (!window.jq || typeof (jq) !== "function") {
             }
             return (S4()+S4()+"-"+S4()+"-"+S4()+"-"+S4()+"-"+S4()+S4()+S4());
         };
+
+        /**
+         * Gets the css matrix, or creates a fake one
+           ```
+           $.getCssMatrix(domElement)
+           ```
+           @returns matrix with postion
+           */
         $.getCssMatrix=function(ele){
             if(ele==undefined) return window.WebKitCSSMatrix||window.MSCSSMatrix|| {a:0,b:0,c:0,d:0,e:0,f:0};
             try{
@@ -1913,7 +2003,7 @@ if (!window.jq || typeof (jq) !== "function") {
                 set.push(handler);
                 element.addEventListener(handler.e, proxyfn, false);
             });
-            element=null;
+            //element=null;
         }
 
         /**
@@ -2017,7 +2107,8 @@ if (!window.jq || typeof (jq) !== "function") {
             stopPropagation: 'isPropagationStopped'
         };
         /**
-         * Creates a proxy function for event handlers
+         * Creates a proxy function for event handlers. 
+		 * As "some" browsers dont support event.stopPropagation this call is bypassed if it cant be found on the event object.
          * @param {String} event
          * @return {Function} proxy
          * @api private
@@ -2028,8 +2119,13 @@ if (!window.jq || typeof (jq) !== "function") {
             }, event);
             $.each(eventMethods, function(name, predicate) {
                 proxy[name] = function() {
-                    this[predicate] = returnTrue;
-                    return event[name].apply(event, arguments);
+                    this[predicate] = returnTrue;					
+					if (name == "stopImmediatePropagation" || name == "stopPropagation"){
+						event.cancelBubble = true;
+						if(!event[name])
+							return;
+					}
+					return event[name].apply(event, arguments);
                 };
                 proxy[predicate] = returnFalse;
             })
@@ -2187,14 +2283,14 @@ if (!window.jq || typeof (jq) !== "function") {
            ```
          * @param {Object} object
          * @param {String} event name
-         * @param {Array} arguments
+         * @param {Array|Object} arguments
          * @title $.trigger(object,event,argments);
          */
 		$.trigger = function(obj, ev, args){
 			var ret = true;
 			if(!obj.__events) return ret;
 			if(!$.isArray(ev)) ev = [ev];
-			if(!$.isArray(args)) args = [];
+			if(!$.isArray(args)) args = [args];
 			for(var i=0; i<ev.length; i++){
 				if(obj.__events[ev[i]]){
 					var evts = obj.__events[ev[i]];
@@ -2216,7 +2312,7 @@ if (!window.jq || typeof (jq) !== "function") {
          * @title $.unbind(object,event,function);
          */
         $.unbind = function(obj, ev, f){
-			if(!obj.__events) return ret;
+			if(!obj.__events) return;
 			if(!$.isArray(ev)) ev = [ev];
 			for(var i=0; i<ev.length; i++){
 				if(obj.__events[ev[i]]){
@@ -2352,14 +2448,48 @@ if (!window.jq || typeof (jq) !== "function") {
                 }
             }
         }, true);
+
+        /**
+         * this function executes javascript in HTML.
+           ```
+           $.parseJS(content)
+           ```
+        * @param {String|DOM} content
+        * @title $.parseJS(content);
+        */
+        var remoteJSPages={};
+        $.parseJS= function(div) {
+            if (!div)
+                return;
+            if(typeof(div)=="string"){
+                var elem=document.createElement("div");
+                elem.innerHTML=div;
+                div=elem;
+            }
+            var scripts = div.getElementsByTagName("script");
+            div = null;            
+            for (var i = 0; i < scripts.length; i++) {
+                if (scripts[i].src.length > 0 && !remoteJSPages[scripts[i].src]) {
+                    var doc = document.createElement("script");
+                    doc.type = scripts[i].type;
+                    doc.src = scripts[i].src;
+                    document.getElementsByTagName('head')[0].appendChild(doc);
+                    remoteJSPages[scripts[i].src] = 1;
+                    doc = null;
+                } else {
+                    window.eval(scripts[i].innerHTML);
+                }
+            }
+        };
 		
 
-
+        /**
         //custom events since people want to do $().click instead of $().bind("click")
+        */
 
         ["click","keydown","keyup","keypress","submit","load","resize","change","select","error"].forEach(function(event){
             $.fn[event]=function(cb){
-                return callback?this.bind(event,callback):this.trigger(event);
+                return cb?this.bind(event,cb):this.trigger(event);
             }
         });
          /**

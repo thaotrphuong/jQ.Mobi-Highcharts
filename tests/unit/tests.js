@@ -25,7 +25,7 @@ test("map",function(){
    });
    res=elems.join(",");
    
-   var mapRes=$("div").map(function(){return this.id}).get().join(",");
+   var mapRes=$("div").map(function(ind,el){return el.id}).get().join(",");
    equals(res,mapRes,"Testing map function by joining ids of $(div)");
 
 });
@@ -39,7 +39,7 @@ test("each",function(){
    });
    res=elems.join(",");
    
-   var mapRes=$("div").map(function(){return this.id}).get().join(",");
+   var mapRes=$("div").map(function(ind,el){return el.id}).get().join(",");
    equals(res,mapRes,"Testing map function by joining ids of $(div)");
 
 });
@@ -922,6 +922,23 @@ test("parent",function(){
   
 });
 
+test("parents",function(){
+   expect(4);
+   var text='<div id="parent_test_cont">'+
+     '<div class="parent1" id="parent1">'+
+      '<span class="parsel">Foo</span>'+
+      '<span class="parsel">Foo</span>'+
+    '</div>'+
+  '</div>';
+  $("#foo").append(text);
+  
+  equals($(".parsel").parents().length,7,"Test all parents");
+  equals($(".parsel").parents("div").length,4,"Test filtering divs");
+  equals($(".parsel").parents($("#foo")).get(),$("#foo").get(),"Test filtering object");
+  equals($(".parsel").parents($("#asdfasdfasdf")).length,0,"Test filtering non-existent object");
+  
+});
+
 test("children",function(){
    expect(4);
    var text='<div id="parent_test_cont">'+
@@ -1219,18 +1236,13 @@ equals(jq.param(elems),"foo=bar&name=jqMobi");
 });
 
 test("serialize",function(){
-   var basestr="name=jqMobi&available=true&version=0.9.5"
+   var basestr="name=jqMobi&available=true&available=false&version=0.9.5"
    equals(jq("#myform").serialize(),basestr,"Testing serialize");
    QUnit.reset();
-
-   var basestr="name=jqMobi&version=1.0"
-   $("#available").get().checked=false;
-   $("#version").val("1.0");
+   $("#myform #available").get(0).options[1].selected=false;
+   
+   var basestr="name=jqMobi&available=true&version=0.9.5"
    equals(jq("#myform").serialize(),basestr,"Testing serialize");
-   $("#available").get().checked=true;
-   $("#version").val("0.9.5");
-    var basestr="test[name]=jqMobi&test[available]=true&test[version]=0.9.5"
-   equals(jq("#myform").serialize('test'),basestr,"Testing serialize");
    QUnit.reset();
 });
 
@@ -1376,3 +1388,12 @@ stop();
   var obj={foo:"bar"};
   $.getJSON("server.php?json","",function(data){equals(data.foo,obj.foo);start()});
 });
+
+
+var testGlobal=0;
+test ("parseJS",function(){
+
+  var test="<script>testGlobal='bar'</script>";
+  $.parseJS(test);
+  equals(testGlobal,"bar","Test parsing script tags");
+})

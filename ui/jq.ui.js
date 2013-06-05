@@ -180,10 +180,12 @@
                     //get the duration
                     var duration = style[$.feat.cssPrefix+"TransitionDuration"];
                     var timeNum = numOnly(duration);
+                    options["time"]=timeNum;
                     if(duration.indexOf("ms")!==-1){
-                        var scale = 'ms';
+                        scale = 'ms';
                     } else {
-                        var scale = 's';
+                        options["time"]*=1000;
+                        scale = 's';
                     }
                 }
                 
@@ -355,7 +357,6 @@
 			//connect to touchLayer to detect editMode
 			$.bind($.touchLayer, 'pre-enter-edit', function(focusEl) {
 				if(!androidFixOn) {
-					//console.log("deploying forms scroll android fix"); // @debug
 					androidFixOn = true;
 					//activate on scroller
 					for(el in cache)
@@ -364,7 +365,6 @@
 			});
 			$.bind($.touchLayer, ['cancel-enter-edit', 'exit-edit'], function(focusEl) {
 				if(androidFixOn) {
-					//console.log("removing forms scroll android fix"); // @debug
 					androidFixOn = false;
 					//dehactivate on scroller
 					for(el in cache)
@@ -384,7 +384,7 @@
 
 
 				if(!boundTouchLayer && $.touchLayer && $.isObject($.touchLayer)) bindTouchLayer()
-				else $.touchLayer = {};
+				else if(!($.touchLayer && $.isObject($.touchLayer))) $.touchLayer = {};
 
 				if(typeof elID == "string" || elID instanceof String) {
 					var el = document.getElementById(elID);
@@ -437,19 +437,60 @@
 			infiniteEndCheck: false,
 			infiniteTriggered: false,
 			scrollSkip: false,
-			scrollTo:function(params){
+			scrollTopInterval:null,
+			scrollLeftInterval:null,
+			_scrollTo:function(params,time){
+				var time=parseInt(time);
+                if(time==0||isNaN(time))
+                {
 				this.el.scrollTop=Math.abs(params.y);
 				this.el.scrollLeft=Math.abs(params.x);
+					return;
+				}
+                var singleTick=10;
+               	var distPerTick=(this.el.scrollTop-params.y)/Math.ceil(time/singleTick);
+               	var distLPerTick=(this.el.scrollLeft-params.x)/Math.ceil(time/singleTick);
+                var self=this;
+                var toRunY=Math.ceil(this.el.scrollTop-params.y)/distPerTick;
+                var toRunX=Math.ceil(this.el.scrollLeft-params.x)/distPerTick;
+                var xRun=yRun=0;
+               	self.scrollTopInterval=window.setInterval(function(){
+                    self.el.scrollTop-=distPerTick;
+                    yRun++;
+                	if(yRun>=toRunY){
+                		self.el.scrollTop=params.y;
+                		clearInterval(self.scrollTopInterval);
+                	}
+                },singleTick);
+
+                self.scrollLeftInterval=window.setInterval(function(){
+                    self.el.scrollLeft-=distLPerTick;
+                    xRun++;
+                    if(xRun>=toRunX){
+                		self.el.scrollLeft=params.x;
+                		clearInterval(self.scrollLeftInterval);
+                	}
+                },singleTick);
 			},
             enable:function(){},
             disable:function(){},
             hideScrollbars:function(){},
             addPullToRefresh:function(){},
-            scrollToTop:function(){
-            	this.el.scrollTop=0;
+            /**
+              * We do step animations for 'native' - iOS is acceptable and desktop browsers are fine
+              * instead of css3
+              */
+            _scrollToTop:function(time){
+                this._scrollTo({x:0,y:0},time);
             },
-            scrollToBottom:function(){
-            	this.el.scrollTop=this.el.scrollHeight;
+            _scrollToBottom:function(time){
+            	this._scrollTo({x:0,y:this.el.scrollHeight-this.el.offsetHeight},time);
+            },
+            scrollToBottom:function(time){
+            	return this._scrollToBottom(time);
+            },
+            scrollToTop:function(time){
+            	return this._scrollToTop(time);
             },
 
 			//methods
@@ -481,6 +522,7 @@
 				if(!this.scrollingLocked) {
 					switch(e.type) {
 					case 'touchstart':
+                        clearInterval(this.scrollTopInterval);
 						this.preventHideRefresh = !this.refreshRunning; // if it's not running why prevent it xD
 						this.moved = false;
 						this.onTouchStart(e);
@@ -548,7 +590,7 @@
 					this.removeEvents();
 				}
 			},
-			scrollToItem: function(el, where) { //TODO: add functionality for x position
+			scrollToItem: function(el, where, time) { //TODO: add functionality for x position
 				if(!$.is$(el)) el = $(el);
 
 				if(where == 'bottom') {
@@ -568,7 +610,7 @@
 				this.scrollBy({
 					y: newTop,
 					x: 0
-				}, 0);
+				}, time);
 			},
 			setPaddings: function(top, bottom) {
 				var el = $(this.el);
@@ -640,18 +682,23 @@
 		nativeScroller = function(el, opts) {
 
 			this.init(el, opts);
-			var $el = $(el);
-			if(opts.noParent !== true) {
-				var oldParent = $el.parent();
-				$el.css('height', oldParent.height());
-				$el.parent().parent().append($el);
-				oldParent.remove();
-			}
-			this.container = this.el;
-			$el.css("-webkit-overflow-scrolling", "touch");
+            var $el = $(el);
+            if (opts.noParent !== true) {
+                var oldParent = $el.parent();
+
+                $el.css('height', oldParent.height()).css("width", oldParent.width());
+                $el.parent().parent().append($el);
+                oldParent.remove();
+            }
+            this.container = this.el;
+            $el.css("-webkit-overflow-scrolling", "touch");
+
+            //if(opts.autoEnable)
+            this.enable();
 		}
 		nativeScroller.prototype = new scrollerCore();
 		jsScroller.prototype = new scrollerCore();
+
 
 
 
@@ -674,10 +721,12 @@
 			//unlock overflow
 			this.el.style.overflow = 'auto';
 			//set current scroll
+
+
 			if(!firstExecution) this.adjustScroll();
 			//set events
-			//if(this.refresh || this.infinite&&!jq.os.desktop) this.el.addEventListener('touchstart', this, false);
-			//this.el.addEventListener('scroll', this, false)
+			this.el.addEventListener('touchstart', this, false);
+			this.el.addEventListener('scroll', this, false)
 		}
 		nativeScroller.prototype.disable = function(destroy) {
 			if(!this.eventsActive) return;
@@ -705,44 +754,53 @@
 			}
 		}
 		nativeScroller.prototype.onTouchStart = function(e) {
-
+			if(this.el.scrollTop===0)
+                this.el.scrollTop=1;
+            if(this.el.scrollTop===(this.el.scrollHeight - this.el.clientHeight))
+                this.el.scrollTop-=1;
 			if(this.refreshCancelCB) clearTimeout(this.refreshCancelCB);
 			//get refresh ready
-			if(this.refresh || this.infinite) {
 
-				this.el.addEventListener('touchmove', this, false);
+			this.el.addEventListener('touchmove', this, false);
+
+			if(this.refresh || this.infinite) {
 				this.dY = e.touches[0].pageY;
 				if(this.refresh && this.dY <0) {
 					this.showRefresh();
 
 				}
 			}
+			$.trigger(this,"scrollstart",[this.el]);
+			$.trigger($.touchLayer,"scrollstart",[this.el]);
 		}
 		nativeScroller.prototype.onTouchMove = function(e) {
 
 			var newcY = e.touches[0].pageY - this.dY;
+            if(this.el.clientHeight==this.el.scrollHeight){
+                e.preventDefault();
 
-			if(!this.moved) {
-				this.el.addEventListener('touchend', this, false);
-				this.moved = true;
-			}
+            }
 
-			var difY = newcY - this.cY;
+            if (!this.moved) {
+                this.el.addEventListener('touchend', this, false);
+                this.moved = true;
+            }
+
+            var difY = newcY - this.cY;
 
 
-			//check for trigger
-			if(this.refresh && (this.el.scrollTop) < 0) {
-				this.showRefresh();
-				//check for cancel
-			} else if(this.refreshTriggered && this.refresh && (this.el.scrollTop > this.refreshHeight)) {
-				this.refreshTriggered = false;
-				if(this.refreshCancelCB) clearTimeout(this.refreshCancelCB);
-				this.hideRefresh(false);
-				$.trigger(this, 'refresh-cancel');
-			}
+            //check for trigger
+            if (this.refresh && (this.el.scrollTop) < 0) {
+                this.showRefresh();
+                //check for cancel
+            } else if (this.refreshTriggered && this.refresh && (this.el.scrollTop > this.refreshHeight)) {
+                this.refreshTriggered = false;
+                if (this.refreshCancelCB) clearTimeout(this.refreshCancelCB);
+                this.hideRefresh(false);
+                $.trigger(this, 'refresh-cancel');
+            }
 
-			this.cY = newcY;
-			e.stopPropagation();
+            this.cY = newcY;
 		}
         nativeScroller.prototype.showRefresh=function(){
             if(!this.refreshTriggered){
@@ -752,10 +810,10 @@
         }
 		nativeScroller.prototype.onTouchEnd = function(e) {
 
-			var triggered = this.el.scrollTop <= 0;
+			var triggered = this.el.scrollTop <= -(this.refreshHeight);
 
 			this.fireRefreshRelease(triggered, true);
-            if(triggered){
+            if(triggered && this.refreshContainer){
                 //lock in place
                 this.refreshContainer.style.position="relative";
                 this.refreshContainer.style.top="0px";
@@ -771,7 +829,28 @@
 				this.infiniteEndCheck = true;
 			}
 			this.touchEndFired = true;
-			//e.stopPropagation();
+			//pollyfil for scroll end since webkit doesn't give any events during the "flick"
+            var max=200;
+            var self=this;
+            var currPos={
+                top:this.el.scrollTop,
+                left:this.el.scrollLeft
+            };
+            var counter=0;
+            self.nativePolling=setInterval(function(){
+                counter++;
+                if(counter>=max){
+                    clearInterval(self.nativePolling);
+                    return;
+                }
+                if(self.el.scrollTop!=currPos.top||self.el.scrollLeft!=currPos.left){
+                    clearInterval(self.nativePolling);
+                    $.trigger($.touchLayer, 'scrollend', [self.el]); //notify touchLayer of this elements scrollend
+                    $.trigger(self,"scrollend",[self.el]);
+                    //self.doScroll(e);
+                }
+
+            },20);
 		}
 		nativeScroller.prototype.hideRefresh = function(animate) {
 
@@ -788,6 +867,7 @@
 					that.refreshContainer.style.top = "-60px";
 					that.refreshContainer.style.position="absolute";
 					that.dY = that.cY = 0;
+					$.trigger(that,"refresh-finish");
 				};
 
 			if(animate === false || !that.jqEl.css3Animate) {
@@ -804,18 +884,21 @@
 			//this.el.addEventListener('touchend', this, false);
 		}
 		nativeScroller.prototype.hideScrollbars = function() {}
-		nativeScroller.prototype.scrollTo = function(pos) {
-			this.el.scrollTop = -(pos.y);
-			this.el.scrollLeft = -(pos.x);
-			this.logPos(this.el.scrollLeft, this.el.scrollTop);
+		nativeScroller.prototype.scrollTo = function(pos,time) {
+			this.logPos(pos.x, pos.y);
+			pos.x*=-1;
+			pos.y*=-1;
+			return this._scrollTo(pos,time);
 		}
-		nativeScroller.prototype.scrollBy = function(pos) {
-			this.el.scrollTop += pos.y;
-			this.el.scrollLeft += pos.x;
+		nativeScroller.prototype.scrollBy = function(pos,time) {
+			pos.x+=this.el.scrollLeft;
+			pos.y+=this.el.scrollTop;
 			this.logPos(this.el.scrollLeft, this.el.scrollTop);
+			return this._scrollTo(pos,time);
 		}
-		nativeScroller.prototype.scrollToBottom = function() {
-			this.el.scrollTop = this.el.scrollHeight;
+		nativeScroller.prototype.scrollToBottom = function(time) {
+			//this.el.scrollTop = this.el.scrollHeight;
+			this._scrollToBottom(time);
 			this.logPos(this.el.scrollLeft, this.el.scrollTop);
 		}
 		nativeScroller.prototype.onScroll = function(e) {
@@ -837,29 +920,33 @@
 			}
 
 
-
 			var that = this;
 			if(this.infinite && this.infiniteEndCheck && this.infiniteTriggered) {
 
 				this.infiniteEndCheck = false;
 				$.trigger(that, "infinite-scroll-end");
 			}
-			//console.log("Scrolling stopped");
 		}
 		nativeScroller.prototype.logPos = function(x, y) {
-			this.loggedPcentX = this.divide(x, (this.el.scrollWidth - this.el.clientWidth));
-			this.loggedPcentY = this.divide(y, (this.el.scrollHeight - this.el.clientHeight));
+
+
+			this.loggedPcentX = this.divide(x, (this.el.scrollWidth));
+			this.loggedPcentY = this.divide(y, (this.el.scrollHeight ));
 			this.scrollLeft = x;
 			this.scrollTop = y;
-			//console.log('pcent '+this.loggedPcentY+':'+(y/(this.el.scrollHeight-this.el.clientHeight)));
+
+			if(isNaN(this.loggedPcentX))
+				this.loggedPcentX=0;
+			if(isNaN(this.loggedPcentY))
+				this.loggedPcentY=0;
+
 		}
 		nativeScroller.prototype.adjustScroll = function() {
-			this.jqEl.css('overflow', 'hidden');
-			this.el.scrollLeft = this.loggedPcentX * (this.el.scrollWidth - this.el.scrollWidth);
-			this.el.scrollTop = this.loggedPcentY * (this.el.scrollHeight - this.el.scrollHeight);
+			this.adjustScrollOverflowProxy_();
+
+			this.el.scrollLeft = this.loggedPcentX * (this.el.scrollWidth);
+			this.el.scrollTop = this.loggedPcentY * (this.el.scrollHeight );
 			this.logPos(this.el.scrollLeft, this.el.scrollTop);
-			$.asap(this.adjustScrollOverflowProxy_);
-			//console.log(this.loggedPcentY+'--'+this.el.scrollTop);
 		}
 
 
@@ -900,7 +987,7 @@
 			scrollDiv.style.position = 'absolute';
 			scrollDiv.style.width = width + "px";
 			scrollDiv.style.height = height + "px";
-			scrollDiv.style[$.feat.cssPrefix+'border-radius'] = "2px";
+			scrollDiv.style[$.feat.cssPrefix+'BorderRadius'] = "2px";
 			scrollDiv.style.borderRadius = "2px";
 			scrollDiv.style.opacity = 0;
 			scrollDiv.className = 'scrollBar';
@@ -911,6 +998,8 @@
 			if(this.eventsActive) return;
 			this.eventsActive = true;
 			if(!firstExecution) this.adjustScroll();
+            else
+                this.scrollerMoveCSS({x:0,y:0},0);
 			//add listeners
 			this.container.addEventListener('touchstart', this, false);
 			this.container.addEventListener('touchmove', this, false);
@@ -920,7 +1009,6 @@
 		jsScroller.prototype.adjustScroll = function() {
 			//set top/left
 			var size = this.getViewportSize();
-			//console.log('adjust '+this.loggedPcentY+':'+(this.el.clientHeight-size.h));
 			this.scrollerMoveCSS({
 				x: Math.round(this.loggedPcentX * (this.el.clientWidth - size.w)),
 				y: Math.round(this.loggedPcentY * (this.el.clientHeight - size.h))
@@ -930,7 +1018,6 @@
 			if(!this.eventsActive) return;
 			//log top/left
 			var cssMatrix = this.getCSSMatrix(this.el);
-			//console.log('disable');
 			this.logPos((numOnly(cssMatrix.e) - numOnly(this.container.scrollLeft)), (numOnly(cssMatrix.f) - numOnly(this.container.scrollTop)));
 			//remove event listeners
 			this.container.removeEventListener('touchstart', this, false);
@@ -948,11 +1035,11 @@
 		jsScroller.prototype.hideScrollbars = function() {
 			if(this.hscrollBar) {
 				this.hscrollBar.style.opacity = 0
-				this.hscrollBar.style[$.feat.cssPrefix+'transition-duration'] = "0ms";
+				this.hscrollBar.style[$.feat.cssPrefix+'TransitionDuration'] = "0ms";
 			}
 			if(this.vscrollBar) {
 				this.vscrollBar.style.opacity = 0
-				this.vscrollBar.style[$.feat.cssPrefix+'transition-duration']  = "0ms";
+				this.vscrollBar.style[$.feat.cssPrefix+'TransitionDuration']  = "0ms";
 			}
 		}
 
@@ -979,10 +1066,7 @@
 				clearTimeout(this.scrollingFinishCB);
 				this.scrollingFinishCB = null;
 			}
-			if(this.doScrollInterval) {
-				clearInterval(this.doScrollInterval);
-				this.doScrollInterval = null;
-			}
+
 
 			//disable if locked
 			if(event.touches.length != 1 || this.boolScrollLock) return;
@@ -1065,7 +1149,7 @@
 	                this.vscrollBar.style.left = (window.innerWidth - numOnly(this.vscrollBar.style.width) * 3) + "px";
 	            else
 	                this.vscrollBar.style.right = "0px";
-	            this.vscrollBar.style[$.feat.cssPrefix+"transition"] = '';
+	            this.vscrollBar.style[$.feat.cssPrefix+"Transition"] = '';
 				// this.vscrollBar.style.opacity = 1;
 			}
 
@@ -1075,20 +1159,16 @@
                     this.hscrollBar.style.top = (window.innerHeight - numOnly(this.hscrollBar.style.height)) + "px";
                 else
                     this.hscrollBar.style.bottom = numOnly(this.hscrollBar.style.height);
-                this.hscrollBar.style[$.feat.cssPrefix+"transition"] = ''; 
+                this.hscrollBar.style[$.feat.cssPrefix+"Transition"] = '';
 				// this.hscrollBar.style.opacity = 1;
 			}
 
 			//save scrollInfo
 			this.lastScrollInfo = scrollInfo;
+			this.hasMoved=true;
 
-			//just in case...
-			if(this.doScrollInterval) window.clearInterval(this.doScrollInterval);
-			this.doScrollInterval = null;
-			var that = this;
-			this.doScrollInterval = window.setInterval(function() {
-				that.doScroll();
-			}, this.refreshRate);
+			this.scrollerMoveCSS(this.lastScrollInfo, 0);
+			$.trigger(this,"scrollstart");
 
 		}
 		jsScroller.prototype.getCSSMatrix = function(el) {
@@ -1180,6 +1260,7 @@
 
 
 			this.saveEventInfo(event);
+			this.doScroll();
 
 		}
 
@@ -1324,10 +1405,14 @@
 		}
 
 		jsScroller.prototype.hideRefresh = function(animate) {
+			var that=this;
 			if(this.preventHideRefresh) return;
 			this.scrollerMoveCSS({
 				x: 0,
-				y: 0
+				y: 0,
+				complete:function(){
+					$.trigger(that,"refresh-finish");
+				}
 			}, HIDE_REFRESH_TIME);
 			this.refreshTriggered = false;
 		}
@@ -1366,8 +1451,6 @@
 
 		jsScroller.prototype.onTouchEnd = function(event) {
 
-			window.clearInterval(this.doScrollInterval);
-			this.doScrollInterval = null;
 
 			if(this.currentScrollingObject == null || !this.moved) return;
 			//event.preventDefault();
@@ -1427,6 +1510,7 @@
 			this.scrollingFinishCB = setTimeout(function() {
 				that.hideScrollbars();
 				$.trigger($.touchLayer, 'scrollend', [that.el]); //notify touchLayer of this elements scrollend
+				$.trigger(that,"scrollend",[that.el]);
 				that.isScrolling = false;
 				that.elementInfo = null; //reset elementInfo when idle
 				if(that.infinite) $.trigger(that, "infinite-scroll-end");
@@ -1508,7 +1592,7 @@
 		jsScroller.prototype.scrollerMoveCSS = function(distanceToMove, time, timingFunction) {
 			if(!time) time = 0;
 			if(!timingFunction) timingFunction = "linear";
-
+			time=numOnly(time);
 			if(this.el && this.el.style) {
 
 				//do not touch the DOM if disabled
@@ -1524,7 +1608,6 @@
 					}
 				}
 				// Position should be updated even when the scroller is disabled so we log the change
-				//console.log('scrollmove #'+this.container.id)
 				this.logPos(distanceToMove.x, distanceToMove.y);
 			}
 		}
@@ -1543,7 +1626,6 @@
 			this.loggedPcentY = this.divide(y, (this.el.clientHeight - size.h));
 			this.scrollTop = y;
 			this.scrollLeft = x;
-			//console.log('logged '+this.loggedPcentY+' '+y+':'+(this.el.clientHeight - size.h));
 		}
 		jsScroller.prototype.scrollbarMoveCSS = function(el, distanceToMove, time, timingFunction) {
 			if(!time) time = 0;
@@ -1646,7 +1728,7 @@
                 this.cancelClass = opts.cancelClass || "button";
                 this.doneText = opts.doneText || "Done";
                 this.doneCallback = opts.doneCallback || function(self) {
-                	self.hide();
+                    // no action by default
                 };
                 this.doneClass = opts.doneClass || "button";
                 this.cancelOnly = opts.cancelOnly || false;
@@ -1787,13 +1869,11 @@
         else
             $(document.body).popup(text.toString());
     }
-    window.confirm = function(text) {
-        throw "Due to iOS eating touch events from native confirms, please use our popup plugin instead";
-    }
+    
 })(jq);
 /**
  * jq.web.actionsheet - a actionsheet for html5 mobile apps
- * Copyright 2012 - AppMobi 
+ * Copyright 2012 - Intel 
  */
 (function($) {
     $.fn["actionsheet"] = function(opts) {
@@ -1891,7 +1971,7 @@
 
 /*
  * jq.web.passwordBox - password box replacement for html5 mobile apps on android due to a bug with CSS3 translate3d
- * @copyright 2011 - AppMobi
+ * @copyright 2011 - Intel
  */
 (function ($) {
     $["passwordBox"] = function () {
@@ -1944,340 +2024,350 @@
     };
 })(jq);
 /*
- * Copyright: AppMobi
- * Description:  This script will replace all drop downs with friendly select controls.  Users can still interact
+ * @copyright: 2011 Intel
+ * @description:  This script will replace all drop downs with friendly select controls.  Users can still interact
  * with the old drop down box as normal with javascript, and this will be reflected
  
  */
 (function($) {
-    $['selectBox'] = {
-        scroller: null,
-        getOldSelects: function(elID) {
-            if (!$.os.android || $.os.androidICS)
-               return;
-            if (!$.fn['scroller']) {
-                alert("This library requires jq.web.Scroller");
-                return;
-            }
-            var container = elID && document.getElementById(elID) ? document.getElementById(elID) : document;
-            if (!container) {
-                alert("Could not find container element for jq.web.selectBox " + elID);
-                return;
-            }
-            var sels = container.getElementsByTagName("select");
-            var that = this;
-            for (var i = 0; i < sels.length; i++) {
-                if (sels[i].hasSelectBoxFix)
-                    continue;
-                (function(theSel) {
-                    var fakeInput = document.createElement("div");
+	$['selectBox'] = {
+		scroller: null,
+		getOldSelects: function(elID) {
+			if (!$.os.android || $.os.androidICS)
+				return;
+			if (!$.fn['scroller']) {
+				alert("This library requires jq.web.Scroller");
+				return;
+			}
+			var container = elID && document.getElementById(elID) ? document.getElementById(elID) : document;
+			if (!container) {
+				alert("Could not find container element for jq.web.selectBox " + elID);
+				return;
+			}
+			var sels = container.getElementsByTagName("select");
+			var that = this;
+			for (var i = 0; i < sels.length; i++) {
+				if (sels[i].hasSelectBoxFix)
+					continue;
+				(function(theSel) {
+					var fakeInput = document.createElement("div");
 					var theSelStyle = window.getComputedStyle(theSel);
-					var width = theSelStyle.width=='intrinsic' ? '100%' : theSelStyle.width;
-                    var selWidth = parseInt(width) > 0 ? width : '100px';
-                    var selHeight = parseInt(theSel.style.height) > 0 ? theSel.style.height : (parseInt(theSelStyle.height) ? theSelStyle.height : '20px');
-                    fakeInput.style.width = selWidth;
-                    fakeInput.style.height = selHeight;
+					var width = theSelStyle.width == 'intrinsic' ? '100%' : theSelStyle.width;
+					var selWidth = parseInt(width) > 0 ? width : '100px';
+					var selHeight = parseInt(theSel.style.height) > 0 ? theSel.style.height : (parseInt(theSelStyle.height) ? theSelStyle.height : '20px');
+					fakeInput.style.width = selWidth;
+					fakeInput.style.height = selHeight;
 					fakeInput.style.margin = theSelStyle.margin;
 					fakeInput.style.position = theSelStyle.position;
 					fakeInput.style.left = theSelStyle.left;
 					fakeInput.style.top = theSelStyle.top;
 					fakeInput.style.lineHeight = theSelStyle.lineHeight;
-                    //fakeInput.style.position = "absolute";
-                    //fakeInput.style.left = "0px";
-                    //fakeInput.style.top = "0px";
-                    fakeInput.style.zIndex = "1";
-                    if (theSel.value)
-                        fakeInput.innerHTML = theSel.options[theSel.selectedIndex].text;
-                    fakeInput.style.background = "url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABEAAAAeCAIAAABFWWJ4AAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyBpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuMC1jMDYwIDYxLjEzNDc3NywgMjAxMC8wMi8xMi0xNzozMjowMCAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENTNSBXaW5kb3dzIiB4bXBNTTpJbnN0YW5jZUlEPSJ4bXAuaWlkOkM1NjQxRUQxNUFEODExRTA5OUE3QjE3NjI3MzczNDAzIiB4bXBNTTpEb2N1bWVudElEPSJ4bXAuZGlkOkM1NjQxRUQyNUFEODExRTA5OUE3QjE3NjI3MzczNDAzIj4gPHhtcE1NOkRlcml2ZWRGcm9tIHN0UmVmOmluc3RhbmNlSUQ9InhtcC5paWQ6QzU2NDFFQ0Y1QUQ4MTFFMDk5QTdCMTc2MjczNzM0MDMiIHN0UmVmOmRvY3VtZW50SUQ9InhtcC5kaWQ6QzU2NDFFRDA1QUQ4MTFFMDk5QTdCMTc2MjczNzM0MDMiLz4gPC9yZGY6RGVzY3JpcHRpb24+IDwvcmRmOlJERj4gPC94OnhtcG1ldGE+IDw/eHBhY2tldCBlbmQ9InIiPz6YWbdCAAAAlklEQVR42mIsKChgIBGwAHFPTw/xGkpKSlggrG/fvhGjgYuLC0gyMZAOoPb8//9/0Or59+8f8XrICQN66SEnDOgcp3AgKiqKqej169dY9Hz69AnCuHv3rrKyMrIKoAhcVlBQELt/gIqwstHD4B8quH37NlAQSKKJEwg3iLbBED8kpeshoGcwh5uuri5peoBFMEluAwgwAK+5aXfuRb4gAAAAAElFTkSuQmCC') right top no-repeat";
-                    fakeInput.style.backgroundColor = "white";
-                    fakeInput.style.lineHeight = selHeight;
-                    fakeInput.style.backgroundSize = "contain"; 
-                    fakeInput.className = "jqmobiSelect_fakeInput " + theSel.className;
-                    fakeInput.id = theSel.id + "_jqmobiSelect";
-                    
-                    fakeInput.style.border = "1px solid gray";
-                    fakeInput.style.color = "black";
-                    fakeInput.linkId = theSel.id;
-                    fakeInput.onclick = function(e) {
-                        that.initDropDown(this.linkId);
-                    };
-                    theSel.parentNode.appendChild(fakeInput);
-                    //theSel.parentNode.style.position = "relative";
-                    theSel.style.display = "none";
-                    theSel.style.webkitAppearance = "none";
-                    // Create listeners to watch when the select value has changed.
-                    // This is needed so the users can continue to interact as normal,
-                    // via jquery or other frameworks
-                    for (var j = 0; j < theSel.options.length; j++) {
-                        if (theSel.options[j].selected) {
-                            fakeInput.value = theSel.options[j].text;
-                        }
-                        theSel.options[j].watch( "selected", function(prop, oldValue, newValue) {
-                            if (newValue == true) {
-                                if(!theSel.getAttribute("multiple"))
-                                that.updateMaskValue(this.parentNode.id, this.text, this.value);
-                                this.parentNode.value = this.value;
-                            }
-                            return newValue;
-                        });
-                    }
-                    theSel.watch("selectedIndex", function(prop, oldValue, newValue) {
-                        if (this.options[newValue]) {
-                            if(!theSel.getAttribute("multiple"))
-                            that.updateMaskValue(this.id, this.options[newValue].text, this.options[newValue].value);
-                            this.value = this.options[newValue].value;
-                        }
-                        return newValue;
-                    });
-                    
-                    fakeInput = null;
-                    imageMask = null;
-                    sels[i].hasSelectBoxFix = true;
-                
-                
-                })(sels[i]);
-            }
-            that.createHtml();
-        },
-        updateDropdown: function(id) {
-            var el = document.getElementById(id);
-            if (!el)
-                return;
-            for (var j = 0; j < el.options.length; j++) {
-                if (el.options[j].selected)
-                    fakeInput.value = el.options[j].text;
-                el.options[j].watch("selected", function(prop, oldValue, newValue) {
-                    if (newValue == true) {
-                        that.updateMaskValue(this.parentNode.id, this.text, this.value);
-                        this.parentNode.value = this.value;
-                    }
-                    return newValue;
-                });
-            }
-            el = null;
-        },
-        initDropDown: function(elID) {
-            
-            var that = this;
-            var el = document.getElementById(elID);
-            if (el.disabled)
-                return;
-            if (!el || !el.options || el.options.length == 0)
-                return;
-            var htmlTemplate = "";
-            var foundInd = 0;
-            document.getElementById("jqmobiSelectBoxScroll").innerHTML = "";
-            
-            document.getElementById("jqmobiSelectBoxHeaderTitle").innerHTML = (el.name != undefined && el.name != "undefined" && el.name != "" ? el.name : elID);
-            
-            for (var j = 0; j < el.options.length; j++) {
-                var currInd = j;
-                el.options[j].watch( "selected", function(prop, oldValue, newValue) {
-                    if (newValue == true) {
-                        that.updateMaskValue(this.parentNode.id, this.text, this.value);
-                        this.parentNode.value = this.value;
-                    }
-                    return newValue;
-                });
-                var checked = (el.options[j].selected) ? true : false;
-                var button = "";
-                var div = document.createElement("div");
-                div.className = "jqmobiSelectRow";
-               // div.id = foundID;
-                div.style.cssText = ";line-height:40px;font-size:14px;padding-left:10px;height:40px;width:100%;position:relative;width:100%;border-bottom:1px solid black;background:white;";
-                var anchor = document.createElement("a");
-                anchor.href = "javascript:;";
-                div.tmpValue = j;
-                div.onclick = function(e) {
-                    that.setDropDownValue(elID, this.tmpValue,this);
-                };
-                anchor.style.cssText = "text-decoration:none;color:black;";
-                anchor.innerHTML = el.options[j].text;
-                var span = document.createElement("span");
-                span.style.cssText = "float:right;margin-right:20px;margin-top:-2px";
-                var rad = document.createElement("button");
-                if (checked) {
-                    rad.style.cssText = "background: #000;padding: 0px 0px;border-radius:15px;border:3px solid black;";
-                    rad.className = "jqmobiSelectRowButtonFound";
-                } else {
-                    rad.style.cssText = "background: #ffffff;padding: 0px 0px;border-radius:15px;border:3px solid black;";
-                    rad.className = "jqmobiSelectRowButton";
-                }
-                rad.style.width = "20px";
-                rad.style.height = "20px";
-                
-                rad.checked = checked;
-                
-                anchor.className = "jqmobiSelectRowText";
-                span.appendChild(rad);
-                div.appendChild(anchor);
-                div.appendChild(span);
-                
-                document.getElementById("jqmobiSelectBoxScroll").appendChild(div);
-                
-                span = null;
-                rad = null;
-                anchor = null;
-            }
-            try {
-                document.getElementById("jqmobiSelectModal").style.display = 'block';
-            } catch (e) {
-                console.log("Error showing div " + e);
-            }
-            try {
-                if (div) {
-                    var scrollThreshold = numOnly(div.style.height);
-                    var offset = numOnly(document.getElementById("jqmobiSelectBoxHeader").style.height);
-                    
-                    if (foundInd * scrollThreshold + offset >= numOnly(document.getElementById("jqmobiSelectBoxFix").clientHeight) - offset)
-                        var scrollToPos = (foundInd) * -scrollThreshold + offset;
-                    else
-                        scrollToPos = 0;
-                    this.scroller.scrollTo({
-                        x: 0,
-                        y: scrollToPos
-                    });
-                }
-            } catch (e) {
-                console.log("error init dropdown" + e);
-            }
-            div = null;
-            el = null;
-        },
-        updateMaskValue: function(elID, value, val2) {
-            
-            var el = document.getElementById(elID + "_jqmobiSelect");
-            var el2 = document.getElementById(elID);
-            if (el)
-                el.innerHTML = value;
-            if (typeof (el2.onchange) == "function")
-                el2.onchange(val2);
-            el = null;
-            el2 = null;
-        },
-        setDropDownValue: function(elID, value,div) {
-            
-            
-            var el = document.getElementById(elID);
-            if(!el)
-                return
+					//fakeInput.style.position = "absolute";
+					//fakeInput.style.left = "0px";
+					//fakeInput.style.top = "0px";
+					fakeInput.style.zIndex = "1";
+					if (theSel.value)
+						fakeInput.innerHTML = theSel.options[theSel.selectedIndex].text;
+					fakeInput.style.background = "url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABEAAAAeCAIAAABFWWJ4AAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyBpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuMC1jMDYwIDYxLjEzNDc3NywgMjAxMC8wMi8xMi0xNzozMjowMCAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENTNSBXaW5kb3dzIiB4bXBNTTpJbnN0YW5jZUlEPSJ4bXAuaWlkOkM1NjQxRUQxNUFEODExRTA5OUE3QjE3NjI3MzczNDAzIiB4bXBNTTpEb2N1bWVudElEPSJ4bXAuZGlkOkM1NjQxRUQyNUFEODExRTA5OUE3QjE3NjI3MzczNDAzIj4gPHhtcE1NOkRlcml2ZWRGcm9tIHN0UmVmOmluc3RhbmNlSUQ9InhtcC5paWQ6QzU2NDFFQ0Y1QUQ4MTFFMDk5QTdCMTc2MjczNzM0MDMiIHN0UmVmOmRvY3VtZW50SUQ9InhtcC5kaWQ6QzU2NDFFRDA1QUQ4MTFFMDk5QTdCMTc2MjczNzM0MDMiLz4gPC9yZGY6RGVzY3JpcHRpb24+IDwvcmRmOlJERj4gPC94OnhtcG1ldGE+IDw/eHBhY2tldCBlbmQ9InIiPz6YWbdCAAAAlklEQVR42mIsKChgIBGwAHFPTw/xGkpKSlggrG/fvhGjgYuLC0gyMZAOoPb8//9/0Or59+8f8XrICQN66SEnDOgcp3AgKiqKqej169dY9Hz69AnCuHv3rrKyMrIKoAhcVlBQELt/gIqwstHD4B8quH37NlAQSKKJEwg3iLbBED8kpeshoGcwh5uuri5peoBFMEluAwgwAK+5aXfuRb4gAAAAAElFTkSuQmCC') right top no-repeat";
+					fakeInput.style.backgroundColor = "white";
+					fakeInput.style.lineHeight = selHeight;
+					fakeInput.style.backgroundSize = "contain";
+					fakeInput.className = "jqmobiSelect_fakeInput " + theSel.className;
+					fakeInput.id = theSel.id + "_jqmobiSelect";
 
-            if(!el.getAttribute("multiple")){
-                el.selectedIndex = value;
-                $(el).find("option").forEach(function(obj){
-                    obj.selected=false;
-                });  
-                $(el).find("option:nth-child("+(value+1)+")").get(0).selected=true;
-            this.scroller.scrollTo({
-                x: 0,
-                y: 0
-            });
-            this.hideDropDown();
-            }
-            else {
-                //multi select
-                
-                var myEl=$(el).find("option:nth-child("+(value+1)+")").get(0);
-                if(myEl.selected){
-                    myEl.selected=false;
-                    $(div).find("button").css("background","#fff");    
-                }
-                else {
-                     myEl.selected=true;
-                    $(div).find("button").css("background","#000");  
-                }
+					fakeInput.style.border = "1px solid gray";
+					fakeInput.style.color = "black";
+					fakeInput.linkId = theSel.id;
+					fakeInput.onclick = function(e) {
+						that.initDropDown(this.linkId);
+					};
+					$(fakeInput).insertBefore($(theSel));
+					//theSel.parentNode.style.position = "relative";
+					theSel.style.display = "none";
+					theSel.style.webkitAppearance = "none";
+					// Create listeners to watch when the select value has changed.
+					// This is needed so the users can continue to interact as normal,
+					// via jquery or other frameworks
+					for (var j = 0; j < theSel.options.length; j++) {
+						if (theSel.options[j].selected) {
+							fakeInput.value = theSel.options[j].text;
+						}
+						theSel.options[j].watch("selected", function(prop, oldValue, newValue) {
+							if (newValue == true) {
+								if (!theSel.getAttribute("multiple"))
+									that.updateMaskValue(this.parentNode.id, this.text, this.value);
+								this.parentNode.value = this.value;
+							}
+							return newValue;
+						});
+					}
+					theSel.watch("selectedIndex", function(prop, oldValue, newValue) {
+						if (this.options[newValue]) {
+							if (!theSel.getAttribute("multiple"))
+								that.updateMaskValue(this.id, this.options[newValue].text, this.options[newValue].value);
+							this.value = this.options[newValue].value;
+						}
+						return newValue;
+					});
 
-            }
-            $(el).trigger("change");
-            el = null;
-        },
-        hideDropDown: function() {
-            document.getElementById("jqmobiSelectModal").style.display = 'none';
-            document.getElementById("jqmobiSelectBoxScroll").innerHTML = "";
-        },
-        createHtml: function() {
-            var that = this;
-            if (document.getElementById("jqmobiSelectBoxContainer")) {
-                return;
-            }
-            var modalDiv = document.createElement("div");
-            
-            modalDiv.style.cssText = "position:absolute;top:0px;bottom:0px;left:0px;right:0px;background:rgba(0,0,0,.7);z-index:200000;display:none;";
-            modalDiv.id = "jqmobiSelectModal";
-            
-            var myDiv = document.createElement("div");
-            myDiv.id = "jqmobiSelectBoxContainer";
-            myDiv.style.cssText = "position:absolute;top:8%;bottom:10%;display:block;width:90%;margin:auto;margin-left:5%;height:90%px;background:white;color:black;border:1px solid black;border-radius:6px;";
-            myDiv.innerHTML = "<div id='jqmobiSelectBoxHeader' style=\"display:block;font-family:'Eurostile-Bold', Eurostile, Helvetica, Arial, sans-serif;color:#fff;font-weight:bold;font-size:18px;line-height:34px;height:34px; text-transform:uppercase;text-align:left;text-shadow:rgba(0,0,0,.9) 0px -1px 1px;    padding: 0px 8px 0px 8px;    border-top-left-radius:5px; border-top-right-radius:5px; -webkit-border-top-left-radius:5px; -webkit-border-top-right-radius:5px;    background:#39424b;    margin:1px;\"><div style='float:left;' id='jqmobiSelectBoxHeaderTitle'></div><div style='float:right;width:60px;margin-top:-5px'><div id='jqmobiSelectClose' class='button' style='width:60px;height:32px;line-height:32px;'>Close</div></div></div>";
-            myDiv.innerHTML += '<div id="jqmobiSelectBoxFix"  style="position:relative;height:90%;background:white;overflow:hidden;width:100%;"><div id="jqmobiSelectBoxScroll"></div></div>';
-            var that = this;
-            modalDiv.appendChild(myDiv);
-            
-            $(document).ready(function() {
-               
-                if(jq("#jQUi"))
-                   jq("#jQUi").append(modalDiv);
-                else
-                    document.body.appendChild(modalDiv);
-                var close = $("#jqmobiSelectClose").get();
-                close.onclick = function() {
-                    that.hideDropDown();
-                };
-                
-                var styleSheet = $("<style>.jqselectscrollBarV{opacity:1 !important;}</style>").get();
-                document.body.appendChild(styleSheet);
-                try {
-                    that.scroller = $("#jqmobiSelectBoxScroll").scroller({
-                        scroller: false,
-                        verticalScroll: true,
-                        vScrollCSS: "jqselectscrollBarV"
-                    });
-                
-                } catch (e) {
-                    console.log("Error creating select html " + e);
-                }
-                modalDiv = null;
-                myDiv = null;
-                styleSheet = null;
-            });
-        }
-    };
+					fakeInput = null;
+					imageMask = null;
+					sels[i].hasSelectBoxFix = true;
+
+
+				})(sels[i]);
+			}
+			that.createHtml();
+		},
+		updateDropdown: function(id) {
+			var el = document.getElementById(id);
+			if (!el)
+				return;
+			for (var j = 0; j < el.options.length; j++) {
+				if (el.options[j].selected)
+					fakeInput.value = el.options[j].text;
+				el.options[j].watch("selected", function(prop, oldValue, newValue) {
+					if (newValue == true) {
+						that.updateMaskValue(this.parentNode.id, this.text, this.value);
+						this.parentNode.value = this.value;
+					}
+					return newValue;
+				});
+			}
+			el = null;
+		},
+		initDropDown: function(elID) {
+
+			var that = this,
+				el = document.getElementById(elID);
+
+			if (el.disabled)
+				return;
+
+			if (!el || !el.options || el.options.length == 0)
+				return;
+
+			var defaultHeaderText = elID,
+				headerText = '',
+				foundInd = 0;
+			
+			headerText = el.attributes.title || el.name;
+			if (typeof headerText === 'object')
+				headerText = headerText.value;
+
+			document.getElementById("jqmobiSelectBoxScroll").innerHTML = "";
+			document.getElementById("jqmobiSelectBoxHeaderTitle").innerHTML = (headerText.length > 0 ? headerText : defaultHeaderText);
+
+			for (var j = 0; j < el.options.length; j++) {
+				el.options[j].watch("selected", function(prop, oldValue, newValue) {
+					if (newValue == true) {
+						that.updateMaskValue(this.parentNode.id, this.text, this.value);
+						this.parentNode.value = this.value;
+					}
+					return newValue;
+				});
+				var checked = (el.options[j].selected) ? true : false,
+					div = document.createElement("div"),
+					anchor = document.createElement("a"),
+					span = document.createElement("span"),
+					rad = document.createElement("button");
+
+				div.className = "jqmobiSelectRow";
+				div.style.cssText = "line-height:40px;font-size:14px;padding-left:10px;height:40px;width:100%;position:relative;width:100%;border-bottom:1px solid black;background:white;";
+				div.tmpValue = j;
+				div.onclick = function(e) {
+					that.setDropDownValue(elID, this.tmpValue, this);
+				};
+
+				anchor.style.cssText = "text-decoration:none;color:black;";
+				anchor.innerHTML = el.options[j].text;
+				anchor.className = "jqmobiSelectRowText";
+
+				span.style.cssText = "float:right;margin-right:20px;margin-top:-2px";
+
+				if (checked) {
+					rad.style.cssText = "background: #000;padding: 0px 0px;border-radius:15px;border:3px solid black;";
+					rad.className = "jqmobiSelectRowButtonFound";
+				} else {
+					rad.style.cssText = "background: #ffffff;padding: 0px 0px;border-radius:15px;border:3px solid black;";
+					rad.className = "jqmobiSelectRowButton";
+				}
+				rad.style.width = "20px";
+				rad.style.height = "20px";
+				rad.checked = checked;
+
+				span.appendChild(rad);
+				div.appendChild(anchor);
+				div.appendChild(span);
+
+				document.getElementById("jqmobiSelectBoxScroll").appendChild(div);
+
+				span = null;
+				rad = null;
+				anchor = null;
+			}
+			try {
+				document.getElementById("jqmobiSelectModal").style.display = 'block';
+			} catch (e) {
+				console.log("Error showing div " + e);
+			}
+			try {
+				if (div) {
+					var scrollThreshold = numOnly(div.style.height);
+					var offset = numOnly(document.getElementById("jqmobiSelectBoxHeader").style.height);
+
+					if (foundInd * scrollThreshold + offset >= numOnly(document.getElementById("jqmobiSelectBoxFix").clientHeight) - offset)
+						var scrollToPos = (foundInd) * -scrollThreshold + offset;
+					else
+						scrollToPos = 0;
+					this.scroller.scrollTo({
+						x: 0,
+						y: scrollToPos
+					});
+				}
+			} catch (e) {
+				console.log("error init dropdown" + e);
+			}
+			div = null;
+			el = null;
+		},
+		updateMaskValue: function(elID, value, val2) {
+
+			var el = document.getElementById(elID + "_jqmobiSelect");
+			var el2 = document.getElementById(elID);
+			if (el)
+				el.innerHTML = value;
+			if (typeof (el2.onchange) == "function")
+				el2.onchange(val2);
+			el = null;
+			el2 = null;
+		},
+		setDropDownValue: function(elID, value, div) {
+
+
+			var el = document.getElementById(elID);
+			if (!el)
+				return;
+
+			if (!el.getAttribute("multiple")) {
+				el.selectedIndex = value;
+				$(el).find("option").forEach(function(obj) {
+					obj.selected = false;
+				});
+				$(el).find("option:nth-child(" + (value + 1) + ")").get(0).selected = true;
+				this.scroller.scrollTo({
+					x: 0,
+					y: 0
+				});
+				this.hideDropDown();
+			}
+			else {
+				//multi select
+
+				var myEl = $(el).find("option:nth-child(" + (value + 1) + ")").get(0);
+				if (myEl.selected) {
+					myEl.selected = false;
+					$(div).find("button").css("background", "#fff");
+				}
+				else {
+					myEl.selected = true;
+					$(div).find("button").css("background", "#000");
+				}
+
+			}
+			$(el).trigger("change");
+			el = null;
+		},
+		hideDropDown: function() {
+			document.getElementById("jqmobiSelectModal").style.display = 'none';
+			document.getElementById("jqmobiSelectBoxScroll").innerHTML = "";
+		},
+		createHtml: function() {
+			var that = this;
+			if (document.getElementById("jqmobiSelectBoxContainer")) {
+				return;
+			}
+			var modalDiv = document.createElement("div");
+
+			modalDiv.style.cssText = "position:absolute;top:0px;bottom:0px;left:0px;right:0px;background:rgba(0,0,0,.7);z-index:200000;display:none;";
+			modalDiv.id = "jqmobiSelectModal";
+
+			var myDiv = document.createElement("div");
+			myDiv.id = "jqmobiSelectBoxContainer";
+			myDiv.style.cssText = "position:absolute;top:8%;bottom:10%;display:block;width:90%;margin:auto;margin-left:5%;height:90%px;background:white;color:black;border:1px solid black;border-radius:6px;";
+			myDiv.innerHTML = '<div id="jqmobiSelectBoxHeader" style="display:block;font-family:\'Eurostile-Bold\', Eurostile, Helvetica, Arial, sans-serif;color:#fff;font-weight:bold;font-size:18px;line-height:34px;height:34px; text-transform:uppercase; text-align:left; text-shadow:rgba(0,0,0,.9) 0px -1px 1px; padding: 0px 8px 0px 8px; border-top-left-radius:5px; border-top-right-radius:5px; -webkit-border-top-left-radius:5px; -webkit-border-top-right-radius:5px; background:#39424b; margin:1px;">'
+				+ '<div style="float:left;" id="jqmobiSelectBoxHeaderTitle"></div>'
+				+ '<div style="float:right;width:60px;margin-top:-5px">'
+				+ '<div id="jqmobiSelectClose" class="button" style="width:60px;height:32px;line-height:32px;">Close</div></div></div>'
+				+ '<div id="jqmobiSelectBoxFix" style="position:relative;height:90%;background:white;overflow:hidden;width:100%;"><div id="jqmobiSelectBoxScroll"></div></div>';
+			var that = this;
+			modalDiv.appendChild(myDiv);
+
+			$(document).ready(function() {
+
+				if (jq("#jQUi"))
+					jq("#jQUi").append(modalDiv);
+				else
+					document.body.appendChild(modalDiv);
+				var close = $("#jqmobiSelectClose").get();
+				close.onclick = function() {
+					that.hideDropDown();
+				};
+
+				var styleSheet = $("<style>.jqselectscrollBarV{opacity:1 !important;}</style>").get();
+				document.body.appendChild(styleSheet);
+				try {
+					that.scroller = $("#jqmobiSelectBoxScroll").scroller({
+						scroller: false,
+						verticalScroll: true,
+						vScrollCSS: "jqselectscrollBarV"
+					});
+
+				} catch (e) {
+					console.log("Error creating select html " + e);
+				}
+				modalDiv = null;
+				myDiv = null;
+				styleSheet = null;
+			});
+		}
+	};
 
 //The following is based off Eli Grey's shim
 //https://gist.github.com/384583
 //We use HTMLElement to not cause problems with other objects
-if (!HTMLElement.prototype.watch) {
-	HTMLElement.prototype.watch = function (prop, handler) {
-		var oldval = this[prop], newval = oldval,
-		getter = function () {
-			return newval;
-		},
-		setter = function (val) {
-			oldval = newval;
-			return newval = handler.call(this, prop, oldval, val);
-		};
-		if (delete this[prop]) { // can't watch constants
-			if (HTMLElement.defineProperty) { // ECMAScript 5
-				HTMLElement.defineProperty(this, prop, {
-					get: getter,
-					set: setter,
-					enumerable: false,
-					configurable: true
-				});
-			} else if (HTMLElement.prototype.__defineGetter__ && HTMLElement.prototype.__defineSetter__) { // legacy
-				HTMLElement.prototype.__defineGetter__.call(this, prop, getter);
-				HTMLElement.prototype.__defineSetter__.call(this, prop, setter);
+	if (!HTMLElement.prototype.watch) {
+		HTMLElement.prototype.watch = function(prop, handler) {
+			var oldval = this[prop], newval = oldval,
+				getter = function() {
+				return newval;
+			},
+				setter = function(val) {
+				oldval = newval;
+				return newval = handler.call(this, prop, oldval, val);
+			};
+			if (delete this[prop]) { // can't watch constants
+				if (HTMLElement.defineProperty) { // ECMAScript 5
+					HTMLElement.defineProperty(this, prop, {
+						get: getter,
+						set: setter,
+						enumerable: false,
+						configurable: true
+					});
+				} else if (HTMLElement.prototype.__defineGetter__ && HTMLElement.prototype.__defineSetter__) { // legacy
+					HTMLElement.prototype.__defineGetter__.call(this, prop, getter);
+					HTMLElement.prototype.__defineSetter__.call(this, prop, setter);
+				}
 			}
-		}
-	};
-}
-if (!HTMLElement.prototype.unwatch) {
-	HTMLElement.prototype.unwatch = function (prop) {
-		var val = this[prop];
-		delete this[prop]; // remove accessors
-		this[prop] = val;
-	};
-}   
+		};
+	}
+	if (!HTMLElement.prototype.unwatch) {
+		HTMLElement.prototype.unwatch = function(prop) {
+			var val = this[prop];
+			delete this[prop]; // remove accessors
+			this[prop] = val;
+		};
+	}
 })(jq);
 
 //Touch events are from zepto/touch.js
@@ -2304,24 +2394,31 @@ if (!HTMLElement.prototype.unwatch) {
             touch = {};
         }
     }
+    var longTapTimer;
     $(document).ready(function() {
+        var prevEl;
         $(document.body).bind('touchstart', function(e) {
             if(!e.touches||e.touches.length==0) return;
             var now = Date.now(), delta = now - (touch.last || now);
             if(!e.touches||e.touches.length==0) return;
             touch.el = $(parentIfText(e.touches[0].target));
             touchTimeout && clearTimeout(touchTimeout);
-            touch.x1 = touch.x2= e.touches[0].pageX;
-            touch.y1 = touch.y2=e.touches[0].pageY;
+            touch.x1 =  e.touches[0].pageX;
+            touch.y1 = e.touches[0].pageY;
+            touch.x2=touch.y2=0;
             if (delta > 0 && delta <= 250)
                 touch.isDoubleTap = true;
             touch.last = now;
-            setTimeout(longTap, longTapDelay);
+           longTapTimer=setTimeout(longTap, longTapDelay);
             if (!touch.el.data("ignore-pressed"))
                 touch.el.addClass("selected");
+            if(prevEl&&!prevEl.data("ignore-pressed"))
+                prevEl.removeClass("selected");
+            prevEl=touch.el;
         }).bind('touchmove', function(e) {
             touch.x2 = e.touches[0].pageX;
             touch.y2 = e.touches[0].pageY;
+            clearTimeout(longTapTimer);
         }).bind('touchend', function(e) {
 
             if (!touch.el)
@@ -2348,7 +2445,11 @@ if (!HTMLElement.prototype.unwatch) {
                 }, 250);
             }
         }).bind('touchcancel', function() {
-            touch = {}
+            if(touch.el&& !touch.el.data("ignore-pressed"))
+                touch.el.removeClass("selected");
+            touch = {};
+            clearTimeout(longTapTimer);
+
         });
     });
     
@@ -2360,10 +2461,10 @@ if (!HTMLElement.prototype.unwatch) {
 })(jq);
 
 //TouchLayer contributed by Carlos Ouro @ Badoo
-//un-authoritive layer between touches and actions on the DOM 
+//un-authoritive layer between touches and actions on the DOM
 //(un-authoritive: listeners do not require useCapture)
-//handles overlooking JS and native scrolling, panning, 
-//no delay on click, edit mode focus, preventing defaults, resizing content, 
+//handles overlooking JS and native scrolling, panning,
+//no delay on click, edit mode focus, preventing defaults, resizing content,
 //enter/exit edit mode (keyboard on screen), prevent clicks on momentum, etc
 //It can be used independently in other apps but it is required by jqUi
 //Object Events
@@ -2379,7 +2480,7 @@ if (!HTMLElement.prototype.unwatch) {
 //Other
 //orientationchange-reshape - resize event due to an orientationchange action
 //reshape - window.resize/window.scroll event (ignores onfocus "shaking") - general reshape notice
-(function() {
+(function($) {
 
 	//singleton
 	$.touchLayer = function(el) {
@@ -2389,7 +2490,7 @@ if (!HTMLElement.prototype.unwatch) {
 	};
 	//configuration stuff
 	var inputElements = ['input', 'select', 'textarea'];
-	var autoBlurInputTypes = ['button', 'radio', 'checkbox', 'range'];
+	var autoBlurInputTypes = ['button', 'radio', 'checkbox', 'range','date'];
 	var requiresJSFocus = $.os.ios; //devices which require .focus() on dynamic click events
 	var verySensitiveTouch = $.os.blackberry; //devices which have a very sensitive touch and touchmove is easily fired even on simple taps
 	var inputElementRequiresNativeTap = $.os.blackberry || ($.os.android && !$.os.chrome); //devices which require the touchstart event to bleed through in order to actually fire the click on select elements
@@ -2399,6 +2500,12 @@ if (!HTMLElement.prototype.unwatch) {
 	var requirePanning = $.os.ios; //devices which require panning feature
 	var addressBarError = 0.97; //max 3% error in position
 	var maxHideTries = 2; //HideAdressBar does not retry more than 2 times (3 overall)
+	var skipTouchEnd=false; //Fix iOS bug with alerts/confirms
+	function getTime(){
+		var d = new Date();
+		var n = d.getTime();
+		return n;
+	}
 	var touchLayer = function(el) {
 			this.clearTouchVars();
 			el.addEventListener('touchstart', this, false);
@@ -2435,9 +2542,13 @@ if (!HTMLElement.prototype.unwatch) {
 			}, true);
 			//js scrollers self binding
 			$.bind(this, 'scrollstart', function(el) {
+				that.isScrolling=true;
+				that.scrollingEl_=el;
 				that.fireEvent('UIEvents', 'scrollstart', el, false, false);
 			});
 			$.bind(this, 'scrollend', function(el) {
+				that.isScrolling=false;
+
 				that.fireEvent('UIEvents', 'scrollend', el, false, false);
 			});
 			//fix layer positioning
@@ -2547,7 +2658,9 @@ if (!HTMLElement.prototype.unwatch) {
 			} else if(jq.os.android) {
 				//on some phones its immediate
 				window.scrollTo(1, 1);
-				this.layer.style.height = this.isFocused_ ? (window.innerHeight) + "px" : (window.outerHeight / window.devicePixelRatio) + 'px';
+				//this.layer.style.height = this.isFocused_ ? (window.innerHeight) + "px" : (window.outerHeight / window.devicePixelRatio) + 'px';
+     			this.layer.style.height = this.isFocused_||window.innerHeight>window.outerHeight ? (window.innerHeight) + "px" : ((window.outerHeight) / window.devicePixelRatio)+ 'px';
+
 				//sometimes android devices are stubborn
 				that = this;
 				//re-test in a bit (some androids (SII, Nexus S, etc) fail to resize on first try)
@@ -2597,7 +2710,6 @@ if (!HTMLElement.prototype.unwatch) {
 
 			//this.log("click on "+tag);
 			if(inputElements.indexOf(tag) !== -1 && (!this.isFocused_ || !e.target==(this.focusedElement))) {
-
 				var type = e.target && e.target.type != undefined ? e.target.type.toLowerCase() : '';
 				var autoBlur = autoBlurInputTypes.indexOf(type) !== -1;
 
@@ -2669,7 +2781,7 @@ if (!HTMLElement.prototype.unwatch) {
 		},
 		onBlur: function(e) {
 			if(jq.os.android && e.target == window) return; //ignore window blurs
-	
+
 			this.isFocused_ = false;
 			//just in case...
 			if(this.focusedElement) this.focusedElement.removeEventListener('blur', this, false);
@@ -2730,7 +2842,7 @@ if (!HTMLElement.prototype.unwatch) {
 					else this.blockPossibleClick_ = true;
 					//check if event was already set
 				} else if(this.scrollTimeoutEl_) {
-					//trigger 
+					//trigger
 					this.scrollEnded(true);
 					this.blockPossibleClick_ = true;
 				}
@@ -2741,7 +2853,7 @@ if (!HTMLElement.prototype.unwatch) {
 			// We allow forcing native tap in android devices (required in special cases)
 			var forceNativeTap = (jq.os.android && e && e.target && e.target.getAttribute && e.target.getAttribute("data-touchlayer") == "ignore");
 
-			//if on edit mode, allow all native touches 
+			//if on edit mode, allow all native touches
 			//(BB10 must still be prevented, always clicks even after move)
 			if(forceNativeTap || (this.isFocused_ && !$.os.blackberry10)) {
 				this.requiresNativeTap = true;
@@ -2756,17 +2868,14 @@ if (!HTMLElement.prototype.unwatch) {
 					this.requiresNativeTap = true;
 				}
 			}
+			else if(e.target&&e.target.tagName!==undefined&&e.target.tagName.toLowerCase()=="input"&&e.target.type=="range"){
+                this.requiresNativeTap=true;
+            }
 
-			////this.log("Touchstart: "+
-			//	(this.isFocused_?"focused ":"")+
-			//	(this.isPanning_?"panning ":"")+
-			//	(this.requiresNativeTap?"nativeTap ":"")+
-			//	(this.isScrolling?"scrolling ":"")+
-			//	(this.allowDocumentScroll_?"allowDocumentScroll_ ":"")
-			//);
 			//prevent default if possible
-			if(!this.isScrolling && !this.isPanning_ && !this.requiresNativeTap) {
-				e.preventDefault();
+			if(!this.isPanning_ && !this.requiresNativeTap) {
+                if((this.isScrolling && !$.feat.nativeTouchScroll)||(!this.isScrolling))
+					e.preventDefault();
 				//demand vertical scroll (don't let it pan the page)
 			} else if(this.isScrollingVertical_) {
 				this.demandVerticalScroll();
@@ -2868,25 +2977,37 @@ if (!HTMLElement.prototype.unwatch) {
 			}
 			//native scroll (for scrollend)
 			if(this.isScrolling) {
+
 				if(!wasMoving) {
 					//this.log("scrollstart");
 					this.fireEvent('UIEvents', 'scrollstart', this.scrollingEl_, false, false);
 				}
-				if(this.isScrollingVertical_) {
+				//if(this.isScrollingVertical_) {
 					this.speedY = (this.lastY - e.touches[0].pageY) / (e.timeStamp - this.lastTimestamp);
 					this.lastY = e.touches[0].pageY;
+					this.lastX = e.touches[0].pageX;
 					this.lastTimestamp = e.timeStamp;
-				}
+				//}
 			}
 			//non-native scroll devices
-			if(!this.isScrolling && (!$.os.blackberry10 || !this.requiresNativeTap)) {
+
+			if((!$.os.blackberry10 && !this.requiresNativeTap)) {
 				//legacy stuff for old browsers
-				e.preventDefault();
+				if(!this.isScrolling ||!$.feat.nativeTouchScroll)
+					e.preventDefault();
 				return;
 			}
+			//e.stopPropagation();
 		},
 
 		onTouchEnd: function(e) {
+			if($.os.ios){
+				if(skipTouchEnd==e.changedTouches[0].identifier){
+					e.preventDefault();
+					return false;
+				}
+				skipTouchEnd=e.changedTouches[0].identifier;
+			}
 			//double check moved for sensitive devices
 			var itMoved = this.moved;
 			if(verySensitiveTouch) {
@@ -2912,8 +3033,7 @@ if (!HTMLElement.prototype.unwatch) {
 				if(!this.blockClicks && !this.blockPossibleClick_) {
 					var theTarget = e.target;
 					if(theTarget.nodeType == 3) theTarget = theTarget.parentNode;
-
-					this.fireEvent('MouseEvents', 'click', theTarget, true, e.mouseToTouch);
+					this.fireEvent('Event', 'click', theTarget, true, e.mouseToTouch,e.changedTouches[0]);
 					this.lastTouchStartX=this.dX;
 					this.lastTouchStartY=this.dY;
 				}
@@ -2951,23 +3071,28 @@ if (!HTMLElement.prototype.unwatch) {
 			this.blockPossibleClick_ = false;
 		},
 
-		fireEvent: function(eventType, eventName, target, bubbles, mouseToTouch) {
+		fireEvent: function(eventType, eventName, target, bubbles, mouseToTouch,data) {
 			//this.log("Firing event "+eventName);
 			//create the event and set the options
 			var theEvent = document.createEvent(eventType);
 			theEvent.initEvent(eventName, bubbles, true);
 			theEvent.target = target;
+            if(data){
+                $.each(data,function(key,val){
+                    theEvent[key]=val;
+                });
+            }
 			//jq.DesktopBrowsers flag
 			if(mouseToTouch) theEvent.mouseToTouch = true;
 			target.dispatchEvent(theEvent);
 		}
 	};
 
-})();
+})(jq);
  /**
  * jq.ui - A User Interface library for creating jqMobi applications
  *
- * @copyright 2011
+ * @copyright 2011 Intel
  * @author AppMobi
  */
 (function($) {
@@ -2980,6 +3105,17 @@ if (!HTMLElement.prototype.unwatch) {
     var ui = function() {
         // Init the page
         var that = this;
+
+        /**
+         * Helper function to setup the transition objects
+         * Custom transitions can be added via $.ui.availableTransitions
+           ```
+           $.ui.availableTransitions['none']=function();
+           ```
+         */
+        
+        this.availableTransitions = {};
+        this.availableTransitions['default'] = this.availableTransitions['none'] = this.noTransition;
 
         //setup the menu and boot touchLayer
         jq(document).ready(function() {
@@ -3017,25 +3153,19 @@ if (!HTMLElement.prototype.unwatch) {
             AppMobi = {}, AppMobi.webRoot = "";
 
         //click back event
-        window.addEventListener("popstate", function() {
+         window.addEventListener("popstate", function() {
+            
             var id = $.ui.getPanelId(document.location.hash);
             //make sure we allow hash changes outside jqUi
-            if (!$.ui.historyCache[id.replace("#", "")])
+            if(id==""&&$.ui.history.length===1) //Fix going back to first panel and an empty hash
+                id="#"+$.ui.firstDiv.id;
+            if(id=="")
+                return;
+            if(document.querySelectorAll(id+".panel").length===0)
                 return;
             if (id != "#" + $.ui.activeDiv.id)
                 that.goBack();
         }, false);
-
-        /**
-         * Helper function to setup the transition objects
-         * Custom transitions can be added via $.ui.availableTransitions
-           ```
-           $.ui.availableTransitions['none']=function();
-           ```
-         */
-        
-        this.availableTransitions = {};
-        this.availableTransitions['default'] = this.availableTransitions['none'] = this.noTransition;
     };
     
     
@@ -3050,7 +3180,6 @@ if (!HTMLElement.prototype.unwatch) {
         backButton: "",
         remotePages: {},
         history: [],
-        historyCache: {},
         homeDiv: "",
         screenWidth: "",
         content: "",
@@ -3068,7 +3197,6 @@ if (!HTMLElement.prototype.unwatch) {
         transitionType: "slide",
         scrollingDivs: [],
         firstDiv: "",
-        remoteJSPages: {},
         hasLaunched: false,
         launchCompleted: false,
         activeDiv: "",
@@ -3257,15 +3385,15 @@ if (!HTMLElement.prototype.unwatch) {
             if (this.history.length > 0) {
                 var that = this;
                 var tmpEl = this.history.pop();
-                $.asap(
+                //$.asap(
                 
-                function() {
+                //function() {
                     that.loadContent(tmpEl.target + "", 0, 1, tmpEl.transition);
                     that.transitionType = tmpEl.transition;
                     //document.location.hash=tmpEl.target;
                     that.updateHash(tmpEl.target);
                 //for Android 4.0.x, we must touchLayer.hideAdressBar()
-                });
+            //    });
             }
         },
         /**
@@ -3302,7 +3430,6 @@ if (!HTMLElement.prototype.unwatch) {
                     newUrl: startPath + '#' + newPage + hashExtras,
                     oldURL: startPath + previousPage
                 });
-                this.historyCache[newPage] = 1;
             } catch (e) {
             }
         },
@@ -3396,7 +3523,7 @@ if (!HTMLElement.prototype.unwatch) {
          * @title $.ui.toggleNavMenu([force])
          */
         toggleNavMenu: function(force) {
-            if (!jq.ui.showNavMenu)
+            if (!this.showNavMenu)
                 return;
             if (jq("#navbar").css("display") != "none" && ((force !== undefined && force !== true) || force === undefined)) {
                 jq("#content").css("bottom", "0px");
@@ -3445,29 +3572,27 @@ if (!HTMLElement.prototype.unwatch) {
             if (!(menu.hasClass("on") || menu.hasClass("to-on")) && ((force !== undefined && force !== false) || force === undefined)) {
                 
                 menu.show();
-                $.asap(function() {
-                    that.css3animate(els, {
-                        "removeClass": "to-off off on",
-                        "addClass": "to-on",
-                        complete: function(canceled) {
-                            if (!canceled) {
-                                that.css3animate(els, {
-                                    "removeClass": "to-off off to-on",
-                                    "addClass": "on",
-                                    time: 0,
-                                    complete: function() {
-                                        that.togglingSideMenu = false;
-                                        if (callback)
-                                            callback(false);
-                                    }
-                                });
-                            } else {
-                                that.togglingSideMenu = false;
-                                if (callback)
-                                    callback(true);
-                            }
+                that.css3animate(els, {
+                    "removeClass": "to-off off on",
+                    "addClass": "to-on",
+                    complete: function(canceled) {
+                        if (!canceled) {
+                            that.css3animate(els, {
+                                "removeClass": "to-off off to-on",
+                                "addClass": "on",
+                                time: 0,
+                                complete: function() {
+                                    that.togglingSideMenu = false;
+                                    if (callback)
+                                        callback(false);
+                                }
+                            });
+                        } else {
+                            that.togglingSideMenu = false;
+                            if (callback)
+                                callback(true);
                         }
-                    });
+                    }
                 });
             
             } else if (force === undefined || (force !== undefined && force === false)) {
@@ -3553,10 +3678,6 @@ if (!HTMLElement.prototype.unwatch) {
             nb.html("");
             for (var i = 0; i < elems.length; i++) {
                 var node = elems[i].cloneNode(true);
-                if (elems[i].oldhash) {
-                    node.href = elems[i].oldhref;
-                    node.onclick = elems[i].oldonclick;
-                }
                 nb.append(node);
             }
             var tmpAnchors = jq("#navbar a");
@@ -3616,10 +3737,6 @@ if (!HTMLElement.prototype.unwatch) {
                 nb.append(tmp);
                 for (var i = 0; i < elems.length; i++) {
                     var node = elems[i].cloneNode(true);
-                    if (elems[i].oldhash) {
-                        node.href = elems[i].oldhref;
-                        node.onclick = elems[i].oldonclick;
-                    }
                     nb.append(node);
                 }
             }
@@ -3705,8 +3822,9 @@ if (!HTMLElement.prototype.unwatch) {
                     
                     button = null;
                     content = null;
-                    this.scrollingDivs['modal_container'].enable();
+                    this.scrollingDivs['modal_container'].enable(that.resetScrollers);
                     this.scrollToTop('modal');
+                     jq("#modalContainer").data("panel",id);
                 }
             } catch (e) {
                 console.log("Error with modal - " + e, this.modalWindow);
@@ -3724,6 +3842,14 @@ if (!HTMLElement.prototype.unwatch) {
             jq("#jQui_modal").hide()
             
             this.scrollingDivs['modal_container'].disable();
+
+            var tmp=$($("#modalContainer").data("panel"));
+            var fnc = tmp.data("unload");
+            if (typeof fnc == "string" && window[fnc]) {
+                window[fnc](tmp.get(0));
+            }
+            tmp.trigger("unloadpanel");
+
         },
 
         /**
@@ -3787,10 +3913,9 @@ if (!HTMLElement.prototype.unwatch) {
                 newDiv = myEl;
             }
             newDiv.className = "panel";
-            var that = this;
-            
+            newId=newDiv.id;
+            this.addDivAndScroll(newDiv, refresh, refreshFunc);
             myEl = null;
-            that.addDivAndScroll(newDiv, refresh, refreshFunc);
             newDiv = null;
             return newId;
         },
@@ -3823,6 +3948,7 @@ if (!HTMLElement.prototype.unwatch) {
             if (tmp.getAttribute("scrolling") && tmp.getAttribute("scrolling") == "no") {
                 hasScroll = false;
                 jsScroll = false;
+                tmp.removeAttribute("js-scrolling");
             }
             
             if (!jsScroll) {
@@ -3889,12 +4015,12 @@ if (!HTMLElement.prototype.unwatch) {
          */
         scrollToTop: function(id) {
             if (this.scrollingDivs[id]) {
-                this.scrollingDivs[id].scrollToTop();
+                this.scrollingDivs[id].scrollToTop("300ms");
             }
         },
         scrollToBottom: function(id) {
             if (this.scrollingDivs[id]) {
-                this.scrollingDivs[id].scrollToBottom();
+                this.scrollingDivs[id].scrollToBottom("300ms");
             }
         },
 
@@ -3929,6 +4055,12 @@ if (!HTMLElement.prototype.unwatch) {
                     that.updateNavbarElements(that.defaultFooter);
                 that.customFooter = false;
             }
+            if (hasHeader && hasHeader.toLowerCase() == "none") {
+                that.toggleHeaderMenu(false);
+            } else {
+                that.toggleHeaderMenu(true);
+            }
+
             if (hasHeader && that.customHeader != hasHeader) {
                 that.customHeader = hasHeader;
                 that.updateHeaderElements(jq("#" + hasHeader).children());
@@ -4000,21 +4132,7 @@ if (!HTMLElement.prototype.unwatch) {
         parseScriptTags: function(div) {
             if (!div)
                 return;
-            var scripts = div.getElementsByTagName("script");
-            div = null;
-            var that = this;
-            for (var i = 0; i < scripts.length; i++) {
-                if (scripts[i].src.length > 0 && !that.remoteJSPages[scripts[i].src]) {
-                    var doc = document.createElement("script");
-                    doc.type = scripts[i].type;
-                    doc.src = scripts[i].src;
-                    document.getElementsByTagName('head')[0].appendChild(doc);
-                    that.remoteJSPages[scripts[i].src] = 1;
-                    doc = null;
-                } else {
-                    window.eval(scripts[i].innerHTML);
-                }
-            }
+            $.parseJS(div);
         },
         /**
          * This is called to initiate a transition or load content via ajax.
@@ -4050,8 +4168,13 @@ if (!HTMLElement.prototype.unwatch) {
                     loadAjax = false;
                 } 
                 else if (crcCheck.length > 0) {
-                    if (crcCheck.length > 0)
-                        target = "#" + crcCheck.get(0).id
+                    loadAjax = false;
+                    if (anchor.getAttribute("data-refresh-ajax") === 'true' || (anchor.refresh && anchor.refresh === true || this.isAjaxApp)) {
+                        loadAjax = true;
+                    }
+                    else {
+                        target = "#" + crcCheck.get(0).id;
+                    }
                 } else if (jq("#" + urlHash).length > 0) {
 
                     //ajax div already exists.  Let's see if we should be refreshing it.
@@ -4103,15 +4226,21 @@ if (!HTMLElement.prototype.unwatch) {
                     this.toggleSideMenu(false);
                 return;
             }
+            this.transitionType = transition;
+            var oldDiv = this.activeDiv;
+            var currWhat = what;
             
             if (what.getAttribute("data-modal") == "true" || what.getAttribute("modal") == "true") {
+                var fnc = what.getAttribute("data-load");
+                if (typeof fnc == "string" && window[fnc]) {
+                    window[fnc](what);
+                }
+                $(what).trigger("loadpanel");
                 return this.showModal(what.id);
             }
                         
             
-            this.transitionType = transition;
-            var oldDiv = this.activeDiv;
-            var currWhat = what;
+          
             
             if (oldDiv == currWhat) //prevent it from going to itself
                 return;
@@ -4126,9 +4255,7 @@ if (!HTMLElement.prototype.unwatch) {
             
             previousTarget = '#' + what.id + hashLink;
             
-            if (this.resetScrollers && this.scrollingDivs[what.id]) {
-                this.scrollingDivs[what.id].scrollToTop();
-            }
+            
             this.doingTransition = true;
 
             oldDiv.style.display="block";
@@ -4195,7 +4322,7 @@ if (!HTMLElement.prototype.unwatch) {
                 this.setBackButtonVisibility(true);
             this.activeDiv = what;
             if (this.scrollingDivs[this.activeDiv.id]) {
-                this.scrollingDivs[this.activeDiv.id].enable();
+                this.scrollingDivs[this.activeDiv.id].enable(this.resetScrollers);
             }
         },
         /**
@@ -4216,8 +4343,6 @@ if (!HTMLElement.prototype.unwatch) {
                 return;
             var urlHash = "url" + crc32(target); //Ajax urls
             var that = this;
-            if (target.indexOf("http") == -1)
-                target = AppMobi.webRoot + target;
             if (target.indexOf("http") == -1)
                 target = AppMobi.webRoot + target;
             var xmlhttp = new XMLHttpRequest();
@@ -4405,7 +4530,8 @@ if (!HTMLElement.prototype.unwatch) {
             this.header.innerHTML = '<a id="backButton"  href="javascript:;"></a> <h1 id="pageTitle"></h1>' + header.innerHTML;
             this.backButton = $("#header #backButton").get(0);
             this.backButton.className = "button";
-            jq(document).on("click", "#header #backButton", function() {
+            jq(document).on("click", "#header #backButton", function(e) {
+                e.preventDefault();
                 that.goBack();
             });
             this.backButton.style.visibility = "hidden";
@@ -4442,19 +4568,23 @@ if (!HTMLElement.prototype.unwatch) {
                 var el = contentDivs[i];
                 var tmp = el;
                 var id;
+                var prevSibling=el.previousSibling;
                 if (el.parentNode && el.parentNode.id != "content") {
+
                     el.parentNode.removeChild(el);
-                    var id = el.id;
+                    id = el.id;
                     if (tmp.getAttribute("selected"))
                         this.firstDiv = jq("#" + id).get(0);
                     this.addDivAndScroll(tmp);
+                    jq("#"+id).insertAfter(prevSibling);
                 } else if (!el.parsedContent) {
                     el.parsedContent = 1;
                     el.parentNode.removeChild(el);
-                    var id = el.id;
+                    id = el.id;
                     if (tmp.getAttribute("selected"))
                         this.firstDiv = jq("#" + id).get(0);
                     this.addDivAndScroll(tmp);
+                    jq("#"+id).insertAfter(prevSibling);
                 }
                 if (el.getAttribute("data-defer")) {
                     defer[id] = el.getAttribute("data-defer");
@@ -4529,9 +4659,7 @@ if (!HTMLElement.prototype.unwatch) {
                     //
                     jq("#navbar").on("click", "a", function(e) {
                         jq("#navbar a").not(this).removeClass("selected");
-                        $.asap(function() {
                             $(e.target).addClass("selected");
-                        });
                     });
 
 
@@ -4542,10 +4670,15 @@ if (!HTMLElement.prototype.unwatch) {
                         that.loadContent(defaultHash, true, false, 'none'); //load the active page as a newTab with no transition
                     } else {
                         previousTarget = "#" + that.firstDiv.id;
-                        that.loadContentData(that.firstDiv); //load the info off the first panel
                         that.parsePanelFunctions(that.firstDiv);
+                        that.loadContentData(that.firstDiv); //load the info off the first panel
+                        
+                        
                         that.firstDiv.style.display = "block";
                         $("#header #backButton").css("visibility", "hidden");
+                        if (that.firstDiv.getAttribute("data-modal") == "true" || that.firstDiv.getAttribute("modal") == "true") {            
+                            that.showModal(that.firstDiv.id);
+                        }
                     }
                     
                     that.launchCompleted = true;
@@ -4557,19 +4690,17 @@ if (!HTMLElement.prototype.unwatch) {
                     //trigger ui ready
                     jq(document).trigger("jq.ui.ready");
                     //remove splashscreen
-                    
-                    $.asap(function() {
-                        // Run after the first div animation has been triggered - avoids flashing
-                        jq("#splashscreen").remove();
-                    });
+
+                    // Run after the first div animation has been triggered - avoids flashing
+                    jq("#splashscreen").remove();
                 };
                 if (loadingDefer) {
                     $(document).one("defer:loaded", loadFirstDiv);
                 } else
-                    $.asap(loadFirstDiv);
+                    loadFirstDiv();
             }
             var that = this;
-            $.bind($.ui, "content-loaded", function() {
+            $.bind(that, "content-loaded", function() {
                 if (that.loadContentQueue.length > 0) {
                     var tmp = that.loadContentQueue.splice(0, 1)[0];
                     that.loadContent(tmp[0], tmp[1], tmp[2], tmp[3], tmp[4]);
@@ -4578,6 +4709,17 @@ if (!HTMLElement.prototype.unwatch) {
             if (window.navigator.standalone) {
                 this.blockPageScroll();
             }
+            this.topClickScroll();
+           
+        },
+        /**
+         * This simulates the click and scroll to top of browsers
+         */
+        topClickScroll:function(){
+             document.getElementById("header").addEventListener("click",function(e){
+                if(e.clientY<=15&&e.target.nodeName.toLowerCase()=="h1") //hack - the title spans the whole width of the header
+                    $.ui.scrollingDivs[$.ui.activeDiv.id].scrollToTop("100");
+            });
         
         },
         /**
@@ -4662,8 +4804,7 @@ if (!HTMLElement.prototype.unwatch) {
                 return;
             }
             
-            
-            
+
             if (theTarget.href.indexOf("tel:") === 0)
                 return false;
 
@@ -4725,19 +4866,35 @@ if (!HTMLElement.prototype.unwatch) {
 
 
 //The following functions are utilitiy functions for jqUi within appMobi.
-//TODO: consider taking all appMobi constraints from jQUI into this code
-(function() {
-    document.addEventListener("appMobi.device.ready", function() { //in AppMobi, we need to undo the height stuff since it causes issues.
+
+(function($) {
+    $(document).one("appMobi.device.ready", function() { //in AppMobi, we need to undo the height stuff since it causes issues.
         setTimeout(function() {
             document.getElementById('jQUi').style.height = "100%";
             document.body.style.height = "100%";
             document.documentElement.style.minHeight = window.innerHeight;
         }, 300);
-        this.removeEventListener("appMobi.device.ready", arguments.callee);
+        $.ui.ready(function(){
+            $.ui.blockPageScroll();
+        })
     });
-
-})();
-
+    //Right now there is a bug where iOS will not scroll a div, even though it's enabled.  This turns scrolling back on with orientation changes
+    if($.feat.nativeTouchScroll){
+        document.addEventListener("orientationchange",function(e){
+            if($.ui.scrollingDivs[$.ui.activeDiv.id])
+            {
+                var tmpscroller=$.ui.scrollingDivs[$.ui.activeDiv.id];
+                if(tmpscroller.el.scrollTop==0)
+                {
+                    tmpscroller.disable();
+                    setTimeout(function(){
+                        tmpscroller.enable();
+                    },300);
+                }
+            }
+        });
+    }
+})(jq);
 (function($ui){
     
         function fadeTransition (oldDiv, currDiv, back) {
@@ -4803,7 +4960,7 @@ if (!HTMLElement.prototype.unwatch) {
             }
         }
         $ui.availableTransitions.fade = fadeTransition;
-})($.ui);
+})(jq.ui);
 (function($ui){
     
         function flipTransition (oldDiv, currDiv, back) {
@@ -4887,7 +5044,7 @@ if (!HTMLElement.prototype.unwatch) {
             }
         }
         $ui.availableTransitions.flip = flipTransition;
-})($.ui);
+})(jq.ui);
 (function($ui){
         
          function popTransition(oldDiv, currDiv, back) {
@@ -4957,7 +5114,7 @@ if (!HTMLElement.prototype.unwatch) {
             }
         }
         $ui.availableTransitions.pop = popTransition;
-})($.ui);
+})(jq.ui);
 (function($ui){
     
         /**
@@ -5015,7 +5172,7 @@ if (!HTMLElement.prototype.unwatch) {
         }
         $ui.availableTransitions.slide = slideTransition;
         $ui.availableTransitions['default'] = slideTransition;
-})($.ui);
+})(jq.ui);
 (function($ui){
     
         function slideDownTransition (oldDiv, currDiv, back) {
@@ -5081,7 +5238,7 @@ if (!HTMLElement.prototype.unwatch) {
             }
         }
         $ui.availableTransitions.down = slideDownTransition;
-})($.ui);
+})(jq.ui);
 
 (function($ui){
     
@@ -5138,5 +5295,5 @@ if (!HTMLElement.prototype.unwatch) {
             }
         }
         $ui.availableTransitions.up = slideUpTransition;
-})($.ui);
+})(jq.ui);
 
