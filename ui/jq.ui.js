@@ -725,10 +725,10 @@
 			this.el.style.overflow = 'auto';
 			//set current scroll
 
-			
+
 			if(!firstExecution) this.adjustScroll();
 			//set events
-			if(this.refresh || this.infinite&&!jq.os.desktop) this.el.addEventListener('touchstart', this, false);
+			this.el.addEventListener('touchstart', this, false);
 			this.el.addEventListener('scroll', this, false)
 		};
 		nativeScroller.prototype.disable = function(destroy) {
@@ -757,12 +757,16 @@
 			}
 		};
 		nativeScroller.prototype.onTouchStart = function(e) {
-
+			if(this.el.scrollTop===0)
+                this.el.scrollTop=1;
+            if(this.el.scrollTop===(this.el.scrollHeight - this.el.clientHeight))
+                this.el.scrollTop-=1;
 			if(this.refreshCancelCB) clearTimeout(this.refreshCancelCB);
 			//get refresh ready
-			if(this.refresh || this.infinite) {
 
-				this.el.addEventListener('touchmove', this, false);
+			this.el.addEventListener('touchmove', this, false);
+
+			if(this.refresh || this.infinite) {
 				this.dY = e.touches[0].pageY;
 				if(this.refresh && this.dY <0) {
 					this.showRefresh();
@@ -775,11 +779,15 @@
 		nativeScroller.prototype.onTouchMove = function(e) {
 
 			var newcY = e.touches[0].pageY - this.dY;
+            if(this.el.clientHeight==this.el.scrollHeight){
+                e.preventDefault();
 
-			if(!this.moved) {
-				this.el.addEventListener('touchend', this, false);
-				this.moved = true;
-			}
+            }
+
+            if (!this.moved) {
+                this.el.addEventListener('touchend', this, false);
+                this.moved = true;
+            }
 
 			//check for trigger
 			if(this.refresh && (this.el.scrollTop) < 0) {
@@ -806,7 +814,7 @@
 			var triggered = this.el.scrollTop <= -(this.refreshHeight);
 
 			this.fireRefreshRelease(triggered, true);
-            if(triggered){
+            if(triggered && this.refreshContainer){
                 //lock in place
                 this.refreshContainer.style.position="relative";
                 this.refreshContainer.style.top="0px";
@@ -934,7 +942,7 @@
 		};
 		nativeScroller.prototype.adjustScroll = function() {
 			this.adjustScrollOverflowProxy_();
-			
+
 			this.el.scrollLeft = this.loggedPcentX * (this.el.scrollWidth);
 			this.el.scrollTop = this.loggedPcentY * (this.el.scrollHeight );
 			this.logPos(this.el.scrollLeft, this.el.scrollTop);
@@ -1145,7 +1153,7 @@
                     this.hscrollBar.style.top = (window.innerHeight - numOnly(this.hscrollBar.style.height)) + "px";
                 else
                     this.hscrollBar.style.bottom = numOnly(this.hscrollBar.style.height);
-                this.hscrollBar.style[$.feat.cssPrefix+"Transition"] = ''; 
+                this.hscrollBar.style[$.feat.cssPrefix+"Transition"] = '';
 				// this.hscrollBar.style.opacity = 1;
 			}
 
